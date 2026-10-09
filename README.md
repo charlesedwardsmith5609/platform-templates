@@ -1,8 +1,10 @@
 # platform-templates
 
-Reusable Terraform modules and GitHub Actions workflows for platform engineering teams. Built from patterns used in production at scale — API gateway architecture, OIDC workload identity, service onboarding automation, and secrets injection without long-lived credentials.
+Reusable Terraform modules and GitHub Actions workflows for platform engineering teams. Patterns covered: Envoy API gateway on EKS, OIDC workload identity (IRSA), service onboarding automation, and deploy-time secrets sync without long-lived cloud credentials.
 
 The goal: make the safe path the easy path.
+
+> These are **reference templates**. Wire them to your org’s cluster names, IAM boundaries, and observability backends before production use. Pin container images to digests and tighten NetworkPolicies per environment.
 
 ## Contents
 
@@ -10,24 +12,33 @@ The goal: make the safe path the easy path.
 
 | Module | What it provisions |
 |--------|--------------------|
-| `terraform/modules/api-gateway` | Envoy Proxy gateway on EKS with OIDC workload identity and OTel sidecar |
+| [`terraform/modules/api-gateway`](terraform/modules/api-gateway) | Envoy gateway on EKS with IRSA, OTel sidecar, PDB, and baseline NetworkPolicy |
 
 ### GitHub Actions workflows
 
 | Workflow | What it does |
 |----------|-------------|
-| `github-actions/service-onboarding.yml` | Full service onboarding: namespace, OIDC identity, OTel config, smoke test, runbook PR — in one workflow |
-| `github-actions/secrets-injection.yml` | Zero long-lived credentials deployment via OIDC → AWS STS → Secrets Manager |
+| [`.github/workflows/service-onboarding.yml`](.github/workflows/service-onboarding.yml) | Namespace, IRSA ServiceAccount, OTel ConfigMap, smoke checks, runbook PR |
+| [`.github/workflows/secrets-injection.yml`](.github/workflows/secrets-injection.yml) | Reusable workflow: OIDC → STS → Secrets Manager → Kubernetes Secret → rollout |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` and actionlint on PRs |
+
+### Examples
+
+| Example | Purpose |
+|---------|---------|
+| [`examples/api-gateway`](examples/api-gateway) | Root-module composition used by CI `terraform validate` |
 
 ---
 
 ## API Gateway module
 
 Provisions an Envoy Proxy API gateway on EKS with:
-- OIDC workload identity (no long-lived IAM credentials on pods)
-- OpenTelemetry sidecar for distributed tracing
-- PodDisruptionBudget for zero-downtime rolling updates
-- Configurable per-route timeouts and retry policies
+
+- IRSA (OIDC) workload identity — trust policy scoped by `sub` and `aud`
+- OpenTelemetry sidecar (OTLP ingest + Envoy metrics scrape on loopback)
+- PodDisruptionBudget and rolling updates with `maxUnavailable=0`
+- Configurable per-route timeouts, retries, and upstream ports
+- Hardened pod security context; Envoy admin bound to localhost only
 
 ```hcl
 module "api_gateway" {
@@ -39,31 +50,40 @@ module "api_gateway" {
   replicas        = 3
 
   routes = [
-    { prefix = "/api/v1/cart",   cluster = "cart-service",   timeout_s = 10 },
-    { prefix = "/api/v1/order",  cluster = "order-service",  timeout_s = 30, retries = 2 },
-    { prefix = "/api/v1/payment",cluster = "payment-service",timeout_s = 45, retries = 0 },
+    { prefix = "/api/v1/cart", cluster = "cart-service", timeout_s = 10 },
+    { prefix = "/api/v1/order", cluster = "order-service", timeout_s = 30, retries = 2 },
+    { prefix = "/api/v1/payment", cluster = "payment-service", port = 8080, timeout_s = 45, retries = 0 },
   ]
 
-  otel_exporter_endpoint = "http://otel-collector.observability:4317"
+  otel_exporter_endpoint = "otel-collector.observability.svc.cluster.local:4317"
+
+  tags = {
+    Environment = "staging"
+    Team        = "payments"
+  }
 }
 ```
 
+Full input/output reference: [`terraform/modules/api-gateway/README.md`](terraform/modules/api-gateway/README.md).
+
 ---
 
-## Service Onboarding workflow
+## Service onboarding workflow
 
-Replaces the typical days-long "get a service onto the platform" process with a single GitHub Actions workflow trigger.
+Replaces a multi-day “get a service onto the platform” checklist with one workflow run.
 
-**What it does in one run:**
-1. Validates service name and SLO target
-2. Bootstraps OIDC workload identity (EKS service account + IAM role binding)
-3. Creates and labels Kubernetes namespace
-4. Deploys OTel ConfigMap with service metadata pre-populated
-5. Runs smoke tests
-6. Opens a PR with an auto-generated runbook stub for the team to fill in
+**In one run it:**
+
+1. Validates service name, team slug, and SLO target  
+2. Creates/labels the namespace and an IRSA-annotated ServiceAccount  
+3. Deploys an OTel ConfigMap with service metadata  
+4. Smoke-checks those resources  
+5. Opens a PR with a runbook stub  
+
+**Required repository secrets:** `AWS_PLATFORM_ROLE_ARN`, `AWS_REGION`, `AWS_ACCOUNT_ID`, `EKS_OIDC_PROVIDER` (e.g. `oidc.eks.us-west-2.amazonaws.com/id/EXAMPLE`), `OTEL_EXPORTER_ENDPOINT`
 
 ```yaml
-# Trigger from GitHub Actions UI or via repository_dispatch
+# Trigger from the Actions UI or repository_dispatch (type: onboard-service)
 workflow_dispatch:
   inputs:
     service_name: "checkout-api"
@@ -74,43 +94,54 @@ workflow_dispatch:
 
 ---
 
-## Secrets Injection workflow
+## Secrets injection workflow
 
-Zero long-lived credentials pattern:
+Deploy-time pattern (no long-lived `AWS_SECRET_ACCESS_KEY` in GitHub):
 
 ```
 GitHub OIDC token → AWS STS AssumeRoleWithWebIdentity → scoped IAM role → Secrets Manager
+                 → Kubernetes Secret (stringData via stdin) → Deployment envFrom → rollout
 ```
 
-No `AWS_SECRET_ACCESS_KEY` ever stored in GitHub Secrets or touches a runner. Sessions are scoped to 15 minutes and tied to a specific deploy run ID.
+Sessions default to 15 minutes and use a per-run role session name. Prefer [External Secrets Operator](https://external-secrets.io/) or the Secrets Store CSI driver for continuous sync; this workflow covers deploy-time bootstrap.
 
 ```yaml
-# Call from your service repo's deploy workflow
+# From a service repo deploy workflow
 jobs:
   deploy:
     uses: your-org/platform-templates/.github/workflows/secrets-injection.yml@main
     with:
       service_name: checkout-api
       environment:  production
-    secrets: inherit
+    secrets:
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      AWS_REGION:          ${{ secrets.AWS_REGION }}
+```
+
+---
+
+## Local checks
+
+```bash
+terraform fmt -check -recursive terraform examples
+cd terraform/modules/api-gateway && terraform init -backend=false && terraform validate
+cd examples/api-gateway && terraform init -backend=false && terraform validate
 ```
 
 ---
 
 ## Philosophy
 
-These templates encode the operational lessons from running platform infrastructure at scale:
-
-- **OIDC everywhere** — no long-lived credentials, ever
-- **OTel by default** — every new service ships with trace instrumentation on day one
-- **Onboarding is a product** — the time from "we have a new service" to "it's safely in production" is a metric worth measuring and reducing
-- **Safe by default** — PodDisruptionBudgets, rolling updates with max_unavailable=0, smoke tests before marking success
+- **OIDC everywhere** — no long-lived cloud credentials in CI or on pods  
+- **OTel by default** — new services get trace/metric wiring on day one  
+- **Onboarding is a product** — time-to-safe-production is a platform metric  
+- **Safe by default** — PDBs, `maxUnavailable=0`, localhost admin, IRSA `aud`+`sub`, smoke checks before success  
 
 ## Contributing
 
-PRs welcome. Each module should include:
-- `main.tf` with all resources
-- `variables.tf` with documented inputs
-- `outputs.tf`
-- `README.md` with usage example
-- At minimum a `terratest` or `terraform validate` in CI
+PRs welcome. Each Terraform module should include:
+
+- `main.tf` (resources), `variables.tf`, `outputs.tf`, `versions.tf`
+- `README.md` with a usage example
+- Templates under `templates/` when ConfigMaps are rendered
+- CI coverage via `terraform validate` (see `.github/workflows/ci.yml`)

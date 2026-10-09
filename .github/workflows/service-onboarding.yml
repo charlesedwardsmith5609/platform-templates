@@ -1,0 +1,395 @@
+# Service onboarding workflow — copy into a platform control-plane repo, or
+# enable here if this repository is that control plane.
+#
+# Flow: validate → IRSA SA + namespace → OTel ConfigMap → smoke checks → runbook PR
+
+name: Service Onboarding
+
+on:
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: "Service name (lowercase, hyphens)"
+        required: true
+        type: string
+      team_slug:
+        description: "GitHub team slug that owns this service"
+        required: true
+        type: string
+      slo_target:
+        description: "Availability SLO target (e.g. 0.999)"
+        required: true
+        default: "0.999"
+        type: string
+      environment:
+        description: "Target environment"
+        required: true
+        default: "staging"
+        type: choice
+        options: [staging, production]
+      namespace:
+        description: "Kubernetes namespace (defaults to service_name)"
+        required: false
+        type: string
+      eks_cluster_name:
+        description: "EKS cluster name (defaults to platform-<environment>)"
+        required: false
+        type: string
+
+  repository_dispatch:
+    types: [onboard-service]
+
+permissions:
+  contents: read
+
+env:
+  SERVICE_NAME: ${{ github.event.inputs.service_name || github.event.client_payload.service_name }}
+  TEAM_SLUG: ${{ github.event.inputs.team_slug || github.event.client_payload.team_slug }}
+  SLO_TARGET: ${{ github.event.inputs.slo_target || github.event.client_payload.slo_target || '0.999' }}
+  ENVIRONMENT: ${{ github.event.inputs.environment || github.event.client_payload.environment || 'staging' }}
+  NAMESPACE: ${{ github.event.inputs.namespace || github.event.client_payload.namespace || github.event.inputs.service_name || github.event.client_payload.service_name }}
+  EKS_CLUSTER_NAME: ${{ github.event.inputs.eks_cluster_name || github.event.client_payload.eks_cluster_name || format('platform-{0}', github.event.inputs.environment || github.event.client_payload.environment || 'staging') }}
+
+jobs:
+  validate:
+    name: Validate inputs
+    runs-on: ubuntu-latest
+    outputs:
+      service_valid: ${{ steps.validate.outputs.valid }}
+    steps:
+      - name: Validate inputs
+        id: validate
+        run: |
+          set -euo pipefail
+          if ! [[ "$SERVICE_NAME" =~ ^[a-z][a-z0-9-]{1,61}[a-z0-9]$ ]]; then
+            echo "::error::service_name '$SERVICE_NAME' is invalid (lowercase alphanumeric + hyphens, 3–63 chars)"
+            exit 1
+          fi
+          if ! [[ "$TEAM_SLUG" =~ ^[a-z0-9]([a-z0-9-]{0,37}[a-z0-9])?$ ]]; then
+            echo "::error::team_slug '$TEAM_SLUG' is invalid"
+            exit 1
+          fi
+          python3 -c "
+          slo = float('${SLO_TARGET}')
+          assert 0.9 <= slo < 1.0, f'SLO target {slo} out of range [0.9, 1.0)'
+          print(f'SLO target {slo} is valid')
+          "
+          echo "valid=true" >> "$GITHUB_OUTPUT"
+          echo "Service '$SERVICE_NAME' passed validation"
+
+  bootstrap-identity:
+    name: Bootstrap OIDC workload identity
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.service_valid == 'true'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PLATFORM_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: onboard-${{ env.SERVICE_NAME }}-${{ github.run_id }}
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "${{ secrets.AWS_REGION }}"
+
+      - name: Create IAM role, namespace, and IRSA ServiceAccount
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          OIDC_PROVIDER: ${{ secrets.EKS_OIDC_PROVIDER }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${AWS_ACCOUNT_ID}" || -z "${OIDC_PROVIDER}" ]]; then
+            echo "::error::AWS_ACCOUNT_ID and EKS_OIDC_PROVIDER secrets are required"
+            exit 1
+          fi
+
+          ROLE_NAME="${SERVICE_NAME}-workload"
+          # OIDC_PROVIDER example: oidc.eks.us-west-2.amazonaws.com/id/EXAMPLE
+          TRUST_POLICY=$(
+            AWS_ACCOUNT_ID="$AWS_ACCOUNT_ID" \
+            OIDC_PROVIDER="$OIDC_PROVIDER" \
+            NAMESPACE="$NAMESPACE" \
+            SERVICE_NAME="$SERVICE_NAME" \
+            python3 - <<'PY'
+          import json, os
+          account = os.environ["AWS_ACCOUNT_ID"]
+          provider = os.environ["OIDC_PROVIDER"]
+          ns = os.environ["NAMESPACE"]
+          svc = os.environ["SERVICE_NAME"]
+          doc = {
+              "Version": "2012-10-17",
+              "Statement": [{
+                  "Effect": "Allow",
+                  "Principal": {
+                      "Federated": f"arn:aws:iam::{account}:oidc-provider/{provider}"
+                  },
+                  "Action": "sts:AssumeRoleWithWebIdentity",
+                  "Condition": {
+                      "StringEquals": {
+                          f"{provider}:aud": "sts.amazonaws.com",
+                          f"{provider}:sub": f"system:serviceaccount:{ns}:{svc}",
+                      }
+                  },
+              }],
+          }
+          print(json.dumps(doc))
+          PY
+          )
+
+          if aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
+            aws iam update-assume-role-policy \
+              --role-name "$ROLE_NAME" \
+              --policy-document "$TRUST_POLICY"
+          else
+            aws iam create-role \
+              --role-name "$ROLE_NAME" \
+              --assume-role-policy-document "$TRUST_POLICY" \
+              --tags Key=platform.io/service,Value="$SERVICE_NAME" Key=platform.io/managed-by,Value=onboarding-workflow
+          fi
+
+          ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)
+
+          kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl label namespace "$NAMESPACE" \
+            "platform.io/team=${TEAM_SLUG}" \
+            "platform.io/service=${SERVICE_NAME}" \
+            "platform.io/slo-target=${SLO_TARGET}" \
+            "platform.io/environment=${ENVIRONMENT}" \
+            --overwrite
+
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: ${SERVICE_NAME}
+            namespace: ${NAMESPACE}
+            annotations:
+              eks.amazonaws.com/role-arn: ${ROLE_ARN}
+            labels:
+              app.kubernetes.io/name: ${SERVICE_NAME}
+              platform.io/managed-by: onboarding-workflow
+          EOF
+
+          echo "OIDC workload identity configured for ${SERVICE_NAME} (${ROLE_ARN})"
+
+  bootstrap-observability:
+    name: Bootstrap observability
+    runs-on: ubuntu-latest
+    needs: [validate, bootstrap-identity]
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PLATFORM_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: onboard-otel-${{ env.SERVICE_NAME }}-${{ github.run_id }}
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "${{ secrets.AWS_REGION }}"
+
+      - name: Deploy OTel ConfigMap
+        env:
+          OTEL_EXPORTER_ENDPOINT: ${{ secrets.OTEL_EXPORTER_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${OTEL_EXPORTER_ENDPOINT}" ]]; then
+            echo "::error::OTEL_EXPORTER_ENDPOINT secret is required"
+            exit 1
+          fi
+
+          # Strip scheme if a full URL was provided; collector expects host:port for gRPC.
+          ENDPOINT="${OTEL_EXPORTER_ENDPOINT#https://}"
+          ENDPOINT="${ENDPOINT#http://}"
+
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: ${SERVICE_NAME}-otel-config
+            namespace: ${NAMESPACE}
+            labels:
+              app.kubernetes.io/name: ${SERVICE_NAME}
+              platform.io/managed-by: onboarding-workflow
+          data:
+            config.yaml: |
+              receivers:
+                otlp:
+                  protocols:
+                    grpc:
+                      endpoint: 0.0.0.0:4317
+                    http:
+                      endpoint: 0.0.0.0:4318
+              processors:
+                resource:
+                  attributes:
+                    - action: upsert
+                      key: service.name
+                      value: ${SERVICE_NAME}
+                    - action: upsert
+                      key: service.namespace
+                      value: ${NAMESPACE}
+                    - action: upsert
+                      key: deployment.environment
+                      value: ${ENVIRONMENT}
+                batch:
+                  timeout: 5s
+              exporters:
+                otlp:
+                  endpoint: ${ENDPOINT}
+                  tls:
+                    insecure: true
+              service:
+                pipelines:
+                  traces:
+                    receivers: [otlp]
+                    processors: [resource, batch]
+                    exporters: [otlp]
+                  metrics:
+                    receivers: [otlp]
+                    processors: [resource, batch]
+                    exporters: [otlp]
+          EOF
+
+          echo "Observability ConfigMap configured for ${SERVICE_NAME}"
+
+  smoke-test:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    needs: [bootstrap-identity, bootstrap-observability]
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PLATFORM_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "${{ secrets.AWS_REGION }}"
+
+      - name: Verify bootstrap resources
+        run: |
+          set -euo pipefail
+          kubectl get namespace "$NAMESPACE"
+          kubectl get serviceaccount "$SERVICE_NAME" -n "$NAMESPACE"
+          kubectl get configmap "$SERVICE_NAME-otel-config" -n "$NAMESPACE"
+          echo "Smoke test passed for ${SERVICE_NAME} in ${NAMESPACE}"
+
+  generate-runbook:
+    name: Generate runbook PR
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate runbook stub
+        run: |
+          set -euo pipefail
+          mkdir -p "runbooks/${SERVICE_NAME}"
+          SLO_PCT=$(python3 -c "print(f'{float('${SLO_TARGET}')*100:.3f}%')")
+          ONBOARDED=$(date -u +"%Y-%m-%d")
+
+          cat > "runbooks/${SERVICE_NAME}/README.md" <<EOF
+          # ${SERVICE_NAME} Runbook
+
+          **Owner:** @${TEAM_SLUG}
+          **Namespace:** \`${NAMESPACE}\`
+          **SLO Target:** ${SLO_TARGET} (${SLO_PCT} availability)
+          **Environment:** ${ENVIRONMENT}
+          **Onboarded:** ${ONBOARDED}
+
+          ## Service overview
+
+          <!-- TODO: Add a brief description of what ${SERVICE_NAME} does -->
+
+          ## On-call contacts
+
+          - Primary: @${TEAM_SLUG}
+          - Escalation: #platform-oncall (Slack)
+          - PagerDuty: <!-- TODO: paste service URL -->
+
+          ## SLO & alerts
+
+          SLO: ${SLO_TARGET} availability over a 30-day rolling window.
+
+          Alert thresholds should be managed as code in your observability repo.
+          Do not hand-edit generated alert rules without a review.
+
+          ## Common incidents
+
+          ### Elevated error rate
+          1. Check recent deployments: \`kubectl rollout history deploy/${SERVICE_NAME} -n ${NAMESPACE}\`
+          2. Check error rate in your metrics backend for \`${SERVICE_NAME}\`
+          3. Rollback if needed: \`kubectl rollout undo deploy/${SERVICE_NAME} -n ${NAMESPACE}\`
+
+          ### Pod not starting
+          1. \`kubectl describe pod -l app.kubernetes.io/name=${SERVICE_NAME} -n ${NAMESPACE}\`
+          2. Check resource quotas: \`kubectl describe resourcequota -n ${NAMESPACE}\`
+
+          ## Dependencies
+
+          <!-- TODO: List upstream services and datastores this service depends on -->
+
+          ## Deployment
+
+          This service is onboarded to the platform CI/CD pipeline.
+          See your internal platform docs for deployment procedures.
+          EOF
+
+          echo "Runbook stub generated at runbooks/${SERVICE_NAME}/README.md"
+
+      - name: Open PR with runbook
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH="onboard/${SERVICE_NAME}-$(date +%Y%m%d)"
+          git config user.email "platform-bot@users.noreply.github.com"
+          git config user.name "Platform Bot"
+          git checkout -b "$BRANCH"
+          git add "runbooks/${SERVICE_NAME}/"
+          git commit -m "chore: onboard ${SERVICE_NAME} — add runbook stub"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: onboard ${SERVICE_NAME}" \
+            --body "$(cat <<EOF
+          Auto-generated by the service onboarding workflow.
+
+          **Service:** \`${SERVICE_NAME}\`
+          **Team:** @${TEAM_SLUG}
+          **SLO:** ${SLO_TARGET}
+          **Environment:** ${ENVIRONMENT}
+
+          ### Checklist
+          - [x] OIDC workload identity configured
+          - [x] OTel ConfigMap deployed
+          - [x] Namespace labelled
+          - [x] Smoke test passed
+          - [ ] Runbook reviewed and expanded by team
+          EOF
+          )" \
+            --label "platform" \
+            --label "onboarding"

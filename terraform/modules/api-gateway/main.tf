@@ -1,113 +1,43 @@
-# API Gateway Module
-# Provisions an Envoy-based API gateway on EKS with:
-#   - OIDC workload identity for downstream service auth
-#   - Configurable per-route timeout and retry policies
-#   - OpenTelemetry sidecar for distributed tracing
-#   - PodDisruptionBudget for zero-downtime deploys
-
-terraform {
-  required_version = ">= 1.5"
-  required_providers {
-    aws        = { source = "hashicorp/aws",       version = "~> 5.0" }
-    kubernetes = { source = "hashicorp/kubernetes", version = "~> 2.0" }
-    helm       = { source = "hashicorp/helm",       version = "~> 2.0" }
-  }
-}
-
-# ── Variables ──────────────────────────────────────────────────────────────
-
-variable "service_name" {
-  description = "Name of the service this gateway fronts (used in labels and OTel resource attributes)"
-  type        = string
-}
-
-variable "namespace" {
-  description = "Kubernetes namespace to deploy into"
-  type        = string
-  default     = "platform"
-}
-
-variable "replicas" {
-  description = "Number of gateway replicas (minimum 2 for PDB)"
-  type        = number
-  default     = 2
-}
-
-variable "envoy_image" {
-  description = "Envoy Proxy container image"
-  type        = string
-  default     = "envoyproxy/envoy:v1.29-latest"
-}
-
-variable "otel_collector_image" {
-  description = "OpenTelemetry Collector sidecar image"
-  type        = string
-  default     = "otel/opentelemetry-collector-contrib:0.100.0"
-}
-
-variable "oidc_issuer_url" {
-  description = "OIDC issuer URL for the EKS cluster (for workload identity)"
-  type        = string
-}
-
-variable "otel_exporter_endpoint" {
-  description = "OTLP endpoint for trace/metric export (e.g. Chronosphere, Jaeger)"
-  type        = string
-  default     = "http://otel-collector.observability:4317"
-}
-
-variable "routes" {
-  description = "List of route definitions: {prefix, cluster, timeout_s, retries}"
-  type = list(object({
-    prefix    = string
-    cluster   = string
-    timeout_s = optional(number, 15)
-    retries   = optional(number, 3)
-  }))
-  default = []
-}
-
-variable "tags" {
-  description = "AWS resource tags"
-  type        = map(string)
-  default     = {}
-}
-
-# ── Locals ─────────────────────────────────────────────────────────────────
+# API Gateway — Envoy on EKS with IRSA, per-route policy, and an OTel sidecar.
 
 locals {
-  labels = {
-    "app.kubernetes.io/name"       = var.service_name
-    "app.kubernetes.io/component"  = "api-gateway"
+  # Selectors must be stable; do not include mutable metadata labels here.
+  selector_labels = {
+    "app.kubernetes.io/name"      = var.service_name
+    "app.kubernetes.io/component" = "api-gateway"
+  }
+
+  labels = merge(local.selector_labels, {
     "app.kubernetes.io/managed-by" = "terraform"
+  })
+
+  environment = lookup(var.tags, "Environment", lookup(var.tags, "environment", "unspecified"))
+
+  resolved_routes = [
+    for r in var.routes : {
+      prefix       = r.prefix
+      cluster      = r.cluster
+      cluster_host = coalesce(r.cluster_host, "${r.cluster}.${var.namespace}.svc.cluster.local")
+      port         = r.port
+      timeout_s    = r.timeout_s
+      retries      = r.retries
+    }
+  ]
+}
+
+resource "kubernetes_namespace_v1" "this" {
+  count = var.create_namespace ? 1 : 0
+
+  metadata {
+    name = var.namespace
+    labels = {
+      "app.kubernetes.io/managed-by" = "terraform"
+      "platform.io/service"          = var.service_name
+    }
   }
 }
 
-# ── OIDC Workload Identity ──────────────────────────────────────────────────
-
-resource "aws_iam_role" "gateway" {
-  name = "${var.service_name}-gateway"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${trimprefix(var.oidc_issuer_url, "https://")}" }
-      Action    = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = {
-          "${trimprefix(var.oidc_issuer_url, "https://")}:sub" = "system:serviceaccount:${var.namespace}:${var.service_name}-gateway"
-        }
-      }
-    }]
-  })
-
-  tags = var.tags
-}
-
-data "aws_caller_identity" "current" {}
-
-resource "kubernetes_service_account" "gateway" {
+resource "kubernetes_service_account_v1" "gateway" {
   metadata {
     name      = "${var.service_name}-gateway"
     namespace = var.namespace
@@ -116,11 +46,11 @@ resource "kubernetes_service_account" "gateway" {
       "eks.amazonaws.com/role-arn" = aws_iam_role.gateway.arn
     }
   }
+
+  depends_on = [kubernetes_namespace_v1.this]
 }
 
-# ── Envoy ConfigMap ────────────────────────────────────────────────────────
-
-resource "kubernetes_config_map" "envoy" {
+resource "kubernetes_config_map_v1" "envoy" {
   metadata {
     name      = "${var.service_name}-envoy-config"
     namespace = var.namespace
@@ -129,16 +59,36 @@ resource "kubernetes_config_map" "envoy" {
 
   data = {
     "envoy.yaml" = templatefile("${path.module}/templates/envoy.yaml.tpl", {
-      service_name           = var.service_name
-      routes                 = var.routes
-      otel_exporter_endpoint = var.otel_exporter_endpoint
+      service_name = var.service_name
+      namespace    = var.namespace
+      routes       = local.resolved_routes
     })
   }
+
+  depends_on = [kubernetes_namespace_v1.this]
 }
 
-# ── Deployment ─────────────────────────────────────────────────────────────
+resource "kubernetes_config_map_v1" "otel" {
+  metadata {
+    name      = "${var.service_name}-otel-config"
+    namespace = var.namespace
+    labels    = local.labels
+  }
 
-resource "kubernetes_deployment" "gateway" {
+  data = {
+    "config.yaml" = templatefile("${path.module}/templates/otel-collector.yaml.tpl", {
+      service_name           = var.service_name
+      namespace              = var.namespace
+      environment            = local.environment
+      otel_exporter_endpoint = var.otel_exporter_endpoint
+      otel_exporter_insecure = var.otel_exporter_insecure
+    })
+  }
+
+  depends_on = [kubernetes_namespace_v1.this]
+}
+
+resource "kubernetes_deployment_v1" "gateway" {
   metadata {
     name      = "${var.service_name}-gateway"
     namespace = var.namespace
@@ -149,7 +99,7 @@ resource "kubernetes_deployment" "gateway" {
     replicas = var.replicas
 
     selector {
-      match_labels = local.labels
+      match_labels = local.selector_labels
     }
 
     strategy {
@@ -164,14 +114,24 @@ resource "kubernetes_deployment" "gateway" {
       metadata {
         labels = local.labels
         annotations = {
-          "prometheus.io/scrape" = "true"
-          "prometheus.io/port"   = "9901"
-          "prometheus.io/path"   = "/stats/prometheus"
+          # Metrics are scraped by the OTel sidecar from loopback (admin is localhost-only).
+          "platform.io/metrics" = "otel-sidecar"
         }
       }
 
       spec {
-        service_account_name = kubernetes_service_account.gateway.metadata[0].name
+        service_account_name             = kubernetes_service_account_v1.gateway.metadata[0].name
+        termination_grace_period_seconds = 30
+
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 101
+          run_as_group    = 101
+          fs_group        = 101
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
 
         container {
           name  = "envoy"
@@ -179,8 +139,11 @@ resource "kubernetes_deployment" "gateway" {
 
           args = ["--config-path", "/etc/envoy/envoy.yaml", "--log-level", "info"]
 
-          port { container_port = 8080; name = "http" }
-          port { container_port = 9901; name = "admin" }
+          port {
+            name           = "http"
+            container_port = 8080
+            protocol       = "TCP"
+          }
 
           volume_mount {
             name       = "envoy-config"
@@ -188,27 +151,68 @@ resource "kubernetes_deployment" "gateway" {
             read_only  = true
           }
 
+          volume_mount {
+            name       = "tmp"
+            mount_path = "/tmp"
+          }
+
           resources {
-            requests = { cpu = "100m", memory = "128Mi" }
-            limits   = { cpu = "500m", memory = "512Mi" }
+            requests = {
+              cpu    = "100m"
+              memory = "128Mi"
+            }
+            limits = {
+              cpu    = "500m"
+              memory = "512Mi"
+            }
+          }
+
+          security_context {
+            allow_privilege_escalation = false
+            read_only_root_filesystem  = true
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/ready"
+              port = 8080
+            }
+            initial_delay_seconds = 3
+            period_seconds        = 5
+            failure_threshold     = 3
           }
 
           liveness_probe {
-            http_get { path = "/healthz/ready"; port = 9901 }
-            initial_delay_seconds = 5
+            http_get {
+              path = "/ready"
+              port = 8080
+            }
+            initial_delay_seconds = 10
             period_seconds        = 10
+            failure_threshold     = 3
           }
         }
 
-        # OTel collector sidecar
         container {
           name  = "otel-collector"
           image = var.otel_collector_image
 
           args = ["--config", "/etc/otel/config.yaml"]
 
-          port { container_port = 4317; name = "otlp-grpc" }
-          port { container_port = 4318; name = "otlp-http" }
+          port {
+            name           = "otlp-grpc"
+            container_port = 4317
+            protocol       = "TCP"
+          }
+
+          port {
+            name           = "otlp-http"
+            container_port = 4318
+            protocol       = "TCP"
+          }
 
           volume_mount {
             name       = "otel-config"
@@ -216,68 +220,131 @@ resource "kubernetes_deployment" "gateway" {
             read_only  = true
           }
 
+          volume_mount {
+            name       = "otel-tmp"
+            mount_path = "/tmp"
+          }
+
           resources {
-            requests = { cpu = "50m",  memory = "64Mi" }
-            limits   = { cpu = "200m", memory = "256Mi" }
+            requests = {
+              cpu    = "50m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "200m"
+              memory = "256Mi"
+            }
+          }
+
+          security_context {
+            allow_privilege_escalation = false
+            read_only_root_filesystem  = true
+            capabilities {
+              drop = ["ALL"]
+            }
           }
         }
 
         volume {
           name = "envoy-config"
-          config_map { name = kubernetes_config_map.envoy.metadata[0].name }
+          config_map {
+            name = kubernetes_config_map_v1.envoy.metadata[0].name
+          }
         }
 
         volume {
           name = "otel-config"
-          config_map { name = "${var.service_name}-otel-config" }
+          config_map {
+            name = kubernetes_config_map_v1.otel.metadata[0].name
+          }
+        }
+
+        volume {
+          name = "tmp"
+          empty_dir {}
+        }
+
+        volume {
+          name = "otel-tmp"
+          empty_dir {}
         }
       }
     }
   }
-}
 
-# ── Pod Disruption Budget ──────────────────────────────────────────────────
+  depends_on = [
+    kubernetes_config_map_v1.envoy,
+    kubernetes_config_map_v1.otel,
+  ]
+}
 
 resource "kubernetes_pod_disruption_budget_v1" "gateway" {
   metadata {
     name      = "${var.service_name}-gateway"
     namespace = var.namespace
+    labels    = local.labels
   }
+
   spec {
     min_available = 1
     selector {
-      match_labels = local.labels
+      match_labels = local.selector_labels
     }
   }
+
+  depends_on = [kubernetes_namespace_v1.this]
 }
 
-# ── Service ────────────────────────────────────────────────────────────────
-
-resource "kubernetes_service" "gateway" {
+resource "kubernetes_service_v1" "gateway" {
   metadata {
     name      = "${var.service_name}-gateway"
     namespace = var.namespace
     labels    = local.labels
   }
+
   spec {
-    selector = local.labels
+    type     = "ClusterIP"
+    selector = local.selector_labels
+
     port {
       name        = "http"
       port        = 80
       target_port = 8080
+      protocol    = "TCP"
     }
-    type = "ClusterIP"
   }
+
+  depends_on = [kubernetes_namespace_v1.this]
 }
 
-# ── Outputs ────────────────────────────────────────────────────────────────
+resource "kubernetes_network_policy_v1" "gateway" {
+  count = var.create_network_policy ? 1 : 0
 
-output "gateway_service_name" {
-  value       = kubernetes_service.gateway.metadata[0].name
-  description = "Kubernetes service name for the gateway"
-}
+  metadata {
+    name      = "${var.service_name}-gateway"
+    namespace = var.namespace
+    labels    = local.labels
+  }
 
-output "iam_role_arn" {
-  value       = aws_iam_role.gateway.arn
-  description = "IAM role ARN attached to the gateway pod via OIDC"
+  spec {
+    pod_selector {
+      match_labels = local.selector_labels
+    }
+
+    policy_types = ["Ingress", "Egress"]
+
+    # Allow HTTP from anywhere in the cluster; tighten per-environment as needed.
+    ingress {
+      ports {
+        port     = 8080
+        protocol = "TCP"
+      }
+    }
+
+    # Allow all egress by default so arbitrary upstream ports work.
+    # Tighten with explicit ports/CIDRs per environment before production.
+    egress {}
+  }
+
+  depends_on = [kubernetes_namespace_v1.this]
 }
