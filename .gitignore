@@ -1,0 +1,35 @@
+# Local scratch - never commit.
+*.local.md
+commit-message.local.txt
+
+# Python bytecode / build artifacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.tfvars
+!*.tfvars.example
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

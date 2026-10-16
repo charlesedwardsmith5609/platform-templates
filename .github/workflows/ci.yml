@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: Terraform fmt & validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Format check
+        run: terraform fmt -check -recursive terraform examples
+
+      - name: Validate module
+        working-directory: terraform/modules/api-gateway
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Validate example composition
+        working-directory: examples/api-gateway
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Render gateway templates
+        working-directory: examples/template-render
+        run: |
+          terraform init -backend=false
+          terraform apply -auto-approve -input=false
+          terraform output -raw envoy | grep -q 'address: 127.0.0.1'
+          terraform output -raw envoy | grep -q 'cart-service.checkout.svc.cluster.local'
+          terraform output -raw otel | grep -q 'insecure: true'
+
+  workflow-lint:
+    name: Actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        run: |
+          bash <(curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
