@@ -7,8 +7,6 @@ framework:
   - github_actions
 
 skip-check:
-  # Example/root stubs intentionally skip real credentials for CI validate.
-  - CKV_AWS_41
   # NetworkPolicy allows all egress by default so arbitrary upstream ports work;
   # module README documents tightening before production.
   - CKV2_K8S_6
