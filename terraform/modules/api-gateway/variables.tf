@@ -32,15 +32,28 @@ variable "replicas" {
 }
 
 variable "envoy_image" {
-  description = "Envoy Proxy container image (pin to a digest in production)"
+  description = "Envoy Proxy container image. Default is pinned by digest (v1.29.7 multi-arch index)."
   type        = string
-  default     = "envoyproxy/envoy:v1.29.7"
+  # Tag retained for readability; runtime resolves by digest.
+  # Digest source: Docker Hub tag v1.29.7 (linux/amd64+arm64 index), 2024-06-30.
+  default = "envoyproxy/envoy:v1.29.7@sha256:8e738f62550380f04d738d8d55f4747d2fbb31cac482c92157a03a67cfbb6108"
+
+  validation {
+    condition     = can(regex("@sha256:[a-f0-9]{64}$", var.envoy_image))
+    error_message = "envoy_image must be pinned with an @sha256:<64-hex> digest."
+  }
 }
 
 variable "otel_collector_image" {
-  description = "OpenTelemetry Collector sidecar image (pin to a digest in production)"
+  description = "OpenTelemetry Collector sidecar image. Default is pinned by digest (0.100.0 multi-arch index)."
   type        = string
-  default     = "otel/opentelemetry-collector-contrib:0.100.0"
+  # Digest source: Docker Hub tag 0.100.0 (multi-arch index), 2024-05-06.
+  default = "otel/opentelemetry-collector-contrib:0.100.0@sha256:cea61bd39d318b3ec7664794f6be9ed0cce9321059a08b4ec5d3b8d310a4b609"
+
+  validation {
+    condition     = can(regex("@sha256:[a-f0-9]{64}$", var.otel_collector_image))
+    error_message = "otel_collector_image must be pinned with an @sha256:<64-hex> digest."
+  }
 }
 
 variable "oidc_issuer_url" {

@@ -63,7 +63,16 @@ Providers must be configured by the root module (EKS kubeconfig / exec auth for 
 - Readiness/liveness probe the data-plane `/ready` route on port 8080.
 - Containers run as UID 101, drop all capabilities, read-only root FS.
 - IRSA trust policy requires both `sub` and `aud`.
-- Pin `envoy_image` / `otel_collector_image` to digests before production.
+- `envoy_image` / `otel_collector_image` defaults are digest-pinned (`tag@sha256:…`); variable validation rejects unpinned overrides.
+
+## Tests
+
+```bash
+terraform init -backend=false
+terraform test
+```
+
+See [`tests/gateway.tftest.hcl`](tests/gateway.tftest.hcl) for plan assertions (IRSA trust, localhost admin, digest pin) and validation failure cases.
 
 ## Inputs / outputs
 
