@@ -4,7 +4,7 @@ Reusable Terraform modules and GitHub Actions workflows for platform engineering
 
 The goal: make the safe path the easy path.
 
-> These are **reference templates**. Wire them to your org’s cluster names, IAM boundaries, and observability backends before production use. Pin container images to digests and tighten NetworkPolicies per environment.
+> These are **reference templates**. Wire them to your org’s cluster names, IAM boundaries, and observability backends before production use. Container image defaults are digest-pinned; tighten NetworkPolicies per environment.
 
 ## Contents
 
@@ -20,13 +20,61 @@ The goal: make the safe path the easy path.
 |----------|-------------|
 | [`.github/workflows/service-onboarding.yml`](.github/workflows/service-onboarding.yml) | Namespace, IRSA ServiceAccount, OTel ConfigMap, smoke checks, runbook PR |
 | [`.github/workflows/secrets-injection.yml`](.github/workflows/secrets-injection.yml) | Reusable workflow: OIDC → STS → Secrets Manager → Kubernetes Secret → rollout |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` and actionlint on PRs |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` / `test`, TFLint, Checkov, actionlint |
 
 ### Examples
 
 | Example | Purpose |
 |---------|---------|
 | [`examples/api-gateway`](examples/api-gateway) | Root-module composition used by CI `terraform validate` |
+| [`examples/template-render`](examples/template-render) | Renders Envoy/OTel templates without cloud providers |
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph clients [Clients]
+    App[In-cluster callers]
+  end
+
+  subgraph ns [Service namespace]
+    Svc[Service :80]
+    Envoy[Envoy :8080<br/>admin 127.0.0.1:9901]
+    OTel[OTel sidecar]
+    SA[ServiceAccount + IRSA]
+    Svc --> Envoy
+    Envoy --> OTel
+    Envoy -.-> SA
+  end
+
+  subgraph upstreams [Upstreams]
+    Cart[cart-service]
+    Order[order-service]
+    Pay[payment-service]
+  end
+
+  subgraph aws [AWS]
+    IAM[IAM role<br/>sub + aud]
+    SM[Secrets Manager]
+  end
+
+  subgraph obs [Observability]
+    Collector[otel-collector]
+  end
+
+  App --> Svc
+  Envoy --> Cart
+  Envoy --> Order
+  Envoy --> Pay
+  SA --> IAM
+  OTel --> Collector
+  GHA[GitHub Actions OIDC] --> IAM
+  GHA --> SM
+```
+
+Deploy-time secrets follow OIDC → STS → Secrets Manager → Kubernetes Secret (see the secrets-injection workflow). Prefer External Secrets Operator for continuous sync.
 
 ---
 
@@ -39,6 +87,7 @@ Provisions an Envoy Proxy API gateway on EKS with:
 - PodDisruptionBudget and rolling updates with `maxUnavailable=0`
 - Configurable per-route timeouts, retries, and upstream ports
 - Hardened pod security context; Envoy admin bound to localhost only
+- Digest-pinned Envoy / OTel images by default (`@sha256:…` required)
 
 ```hcl
 module "api_gateway" {
@@ -124,8 +173,10 @@ jobs:
 
 ```bash
 terraform fmt -check -recursive terraform examples
-cd terraform/modules/api-gateway && terraform init -backend=false && terraform validate
+cd terraform/modules/api-gateway && terraform init -backend=false && terraform validate && terraform test
 cd examples/api-gateway && terraform init -backend=false && terraform validate
+tflint --init && tflint --chdir terraform/modules/api-gateway
+checkov -d . --config-file .checkov.yml
 ```
 
 ---
@@ -135,7 +186,7 @@ cd examples/api-gateway && terraform init -backend=false && terraform validate
 - **OIDC everywhere** — no long-lived cloud credentials in CI or on pods  
 - **OTel by default** — new services get trace/metric wiring on day one  
 - **Onboarding is a product** — time-to-safe-production is a platform metric  
-- **Safe by default** — PDBs, `maxUnavailable=0`, localhost admin, IRSA `aud`+`sub`, smoke checks before success  
+- **Safe by default** — PDBs, `maxUnavailable=0`, localhost admin, digest-pinned images, IRSA `aud`+`sub`, smoke checks before success  
 
 ## Contributing
 
@@ -144,4 +195,5 @@ PRs welcome. Each Terraform module should include:
 - `main.tf` (resources), `variables.tf`, `outputs.tf`, `versions.tf`
 - `README.md` with a usage example
 - Templates under `templates/` when ConfigMaps are rendered
-- CI coverage via `terraform validate` (see `.github/workflows/ci.yml`)
+- Tests under `tests/*.tftest.hcl` where practical
+- CI coverage via `terraform validate` / `terraform test`, TFLint, and Checkov (see `.github/workflows/ci.yml`)

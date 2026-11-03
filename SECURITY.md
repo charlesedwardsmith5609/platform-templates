@@ -14,4 +14,4 @@ If you discover a vulnerability in these templates (for example unsafe defaults 
 - IRSA / OIDC trust policies scoped by `sub` and `aud`
 - Secret values must not be written to `$GITHUB_ENV`, workspace files, or process argv
 - Envoy admin interfaces must not be Service-exposed
-- Container images should be pinned to digests prior to production rollout
+- Container image variables require `@sha256:` digests (module defaults ship pinned)
