@@ -12,6 +12,10 @@ skip-check:
   - CKV2_K8S_6
   # Service onboarding is intentionally parameterized via workflow_dispatch inputs.
   - CKV_GHA_7
+  # examples/floci-aws Secrets Manager fixture is local-only; CMK + rotation are
+  # not under test (Floci apply covers create/get/destroy of the secret path).
+  - CKV_AWS_149
+  - CKV2_AWS_57
 
 soft-fail: false
 download-external-modules: false

@@ -98,8 +98,10 @@ resource "aws_iam_role_policy_attachment" "readonly" {
 }
 
 # Pattern used by .github/workflows/secrets-injection.yml (not provisioned by the module).
+# Local Floci fixture only — CMK encryption / rotation skipped in .checkov.yml.
 resource "aws_secretsmanager_secret" "service_config" {
-  name = local.secret_id
+  name                    = local.secret_id
+  recovery_window_in_days = 0
 
   tags = {
     Environment = "staging"
