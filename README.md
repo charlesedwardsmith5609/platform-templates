@@ -20,7 +20,7 @@ The goal: make the safe path the easy path.
 |----------|-------------|
 | [`.github/workflows/service-onboarding.yml`](.github/workflows/service-onboarding.yml) | Namespace, IRSA ServiceAccount, OTel ConfigMap, smoke checks, runbook PR |
 | [`.github/workflows/secrets-injection.yml`](.github/workflows/secrets-injection.yml) | Reusable workflow: OIDC → STS → Secrets Manager → Kubernetes Secret → rollout |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` / `test`, TFLint, Checkov, actionlint |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` / `test`, TFLint, Checkov, actionlint, Floci apply |
 
 ### Examples
 
@@ -28,6 +28,7 @@ The goal: make the safe path the easy path.
 |---------|---------|
 | [`examples/api-gateway`](examples/api-gateway) | Root-module composition used by CI `terraform validate` |
 | [`examples/template-render`](examples/template-render) | Renders Envoy/OTel templates without cloud providers |
+| [`examples/floci-aws`](examples/floci-aws) | Floci apply fixture for IRSA IAM + Secrets Manager (no K8s) |
 
 ---
 
@@ -178,6 +179,28 @@ cd examples/api-gateway && terraform init -backend=false && terraform validate
 tflint --init && tflint --chdir terraform/modules/api-gateway
 checkov -d . --config-file .checkov.yml
 ```
+
+---
+
+## Local testing with Floci
+
+[Floci](https://github.com/floci-io/floci) is a free local AWS emulator (no AWS account or token). CI runs a separate **Floci apply** job so emulator gaps cannot block fmt / validate / TFLint / Checkov / actionlint.
+
+```bash
+make test-floci   # docker pull pinned Floci → apply → assert → destroy
+```
+
+| Module / workflow piece | Floci apply coverage |
+|-------------------------|----------------------|
+| `aws_iam_role` (IRSA trust `sub`+`aud`) | **Covered** via `examples/floci-aws` |
+| `aws_iam_role_policy_attachment` | **Covered** (fixture attaches `ReadOnlyAccess`) |
+| `data.aws_caller_identity` / STS | **Covered** |
+| Secrets Manager secret + `get-secret-value` (secrets-injection pattern) | **Covered** (fixture; not provisioned by the module) |
+| `aws_iam_openid_connect_provider` | **Not created** by the module (ARN string only) |
+| All `kubernetes_*` resources | **Unsupported here** — stay on validate / `terraform test` / template-render |
+| EKS cluster / live kube API | **Unsupported here** |
+
+Image pin: `floci/floci:2.4.0@sha256:5ee85db604c4aa74ac76e07ea5cc83086f37bb472bf3dbb97e34019e48efae9c` (override with `FLOCI_IMAGE`).
 
 ---
 

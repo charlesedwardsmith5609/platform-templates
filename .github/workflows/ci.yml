@@ -97,3 +97,30 @@ jobs:
           bash <(curl --fail --silent --show-error --location \
             https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           ./actionlint -color
+
+  # Separate from fmt/validate/TFLint/Checkov so Floci limitations cannot block those jobs.
+  floci-apply:
+    name: Floci apply (AWS-only)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Install AWS CLI
+        run: |
+          if ! command -v aws >/dev/null; then
+            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+            unzip -qo /tmp/awscliv2.zip -d /tmp
+            sudo /tmp/aws/install
+          fi
+          aws --version
+
+      - name: Floci apply / destroy
+        run: ./scripts/test-floci.sh
