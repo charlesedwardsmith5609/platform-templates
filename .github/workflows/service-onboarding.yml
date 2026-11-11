@@ -39,8 +39,7 @@ on:
   repository_dispatch:
     types: [onboard-service]
 
-permissions:
-  contents: read
+permissions: {}
 
 env:
   SERVICE_NAME: ${{ github.event.inputs.service_name || github.event.client_payload.service_name }}
@@ -54,6 +53,7 @@ jobs:
   validate:
     name: Validate inputs
     runs-on: ubuntu-latest
+    permissions: {}
     outputs:
       service_valid: ${{ steps.validate.outputs.valid }}
     steps:

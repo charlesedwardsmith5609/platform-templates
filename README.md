@@ -153,12 +153,15 @@ GitHub OIDC token → AWS STS AssumeRoleWithWebIdentity → scoped IAM role → 
                  → Kubernetes Secret (stringData via stdin) → Deployment envFrom → rollout
 ```
 
-Sessions default to 15 minutes and use a per-run role session name. Prefer [External Secrets Operator](https://external-secrets.io/) or the Secrets Store CSI driver for continuous sync; this workflow covers deploy-time bootstrap.
+Sessions default to 15 minutes and use a per-run role session name. Prefer [External Secrets Operator](https://external-secrets.io/) or the Secrets Store CSI driver for continuous sync; this workflow covers deploy-time bootstrap. The caller job grants `id-token: write` and `contents: read`, the same scopes the `deploy` job declares.
 
 ```yaml
 # From a service repo deploy workflow
 jobs:
   deploy:
+    permissions:
+      id-token: write
+      contents: read
     uses: your-org/platform-templates/.github/workflows/secrets-injection.yml@main
     with:
       service_name: checkout-api
@@ -169,6 +172,25 @@ jobs:
 ```
 
 ---
+
+## Workflow token permissions
+
+Each workflow sets `permissions: {}`. A job receives only the scopes listed on that job.
+
+| Workflow | Job | Permissions | Used for |
+|----------|-----|-------------|----------|
+| [`ci.yml`](.github/workflows/ci.yml) | `terraform` | `contents: read` | Checkout |
+| [`ci.yml`](.github/workflows/ci.yml) | `tflint` | `contents: read` | Checkout |
+| [`ci.yml`](.github/workflows/ci.yml) | `checkov` | `contents: read` | Checkout |
+| [`ci.yml`](.github/workflows/ci.yml) | `workflow-lint` | `contents: read` | Checkout |
+| [`ci.yml`](.github/workflows/ci.yml) | `action-pins` | `contents: read` | Checkout |
+| [`ci.yml`](.github/workflows/ci.yml) | `floci-apply` | `contents: read` | Checkout |
+| [`service-onboarding.yml`](.github/workflows/service-onboarding.yml) | `validate` | `{}` | Input checks only |
+| [`service-onboarding.yml`](.github/workflows/service-onboarding.yml) | `bootstrap-identity` | `id-token: write`, `contents: read` | OIDC assume-role. Job token includes contents read. |
+| [`service-onboarding.yml`](.github/workflows/service-onboarding.yml) | `bootstrap-observability` | `id-token: write`, `contents: read` | OIDC assume-role. Job token includes contents read. |
+| [`service-onboarding.yml`](.github/workflows/service-onboarding.yml) | `smoke-test` | `id-token: write`, `contents: read` | OIDC assume-role. Job token includes contents read. |
+| [`service-onboarding.yml`](.github/workflows/service-onboarding.yml) | `generate-runbook` | `contents: write`, `pull-requests: write` | Checkout, push the runbook branch, `gh pr create` |
+| [`secrets-injection.yml`](.github/workflows/secrets-injection.yml) | `deploy` | `id-token: write`, `contents: read` | OIDC assume-role and checkout |
 
 ## Local checks
 
@@ -227,7 +249,7 @@ Digest pinning stops surprise pulls; it does **not** stop known CVEs in the pinn
 - **OIDC everywhere** — no long-lived cloud credentials in CI or on pods  
 - **OTel by default** — new services get trace/metric wiring on day one  
 - **Onboarding is a product** — time-to-safe-production is a platform metric  
-- **Safe by default** — PDBs, `maxUnavailable=0`, localhost admin, digest-pinned images, SHA-pinned third-party Actions (`owner/action@<40-char-sha> # tag`), IRSA `aud`+`sub`, smoke checks before success  
+- **Safe by default** — PDBs, `maxUnavailable=0`, localhost admin, digest-pinned images, SHA-pinned third-party Actions (`owner/action@<40-char-sha> # tag`), workflow `permissions: {}` with per-job token scopes, IRSA `aud`+`sub`, smoke checks before success  
 
 ## Contributing
 
