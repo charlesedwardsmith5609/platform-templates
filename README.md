@@ -20,7 +20,7 @@ The goal: make the safe path the easy path.
 |----------|-------------|
 | [`.github/workflows/service-onboarding.yml`](.github/workflows/service-onboarding.yml) | Namespace, IRSA ServiceAccount, OTel ConfigMap, smoke checks, runbook PR |
 | [`.github/workflows/secrets-injection.yml`](.github/workflows/secrets-injection.yml) | Reusable workflow: OIDC → STS → Secrets Manager → Kubernetes Secret → rollout |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` / `test`, TFLint, Checkov, actionlint, Floci apply |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` / `test`, TFLint, Checkov, actionlint, action SHA pins, Floci apply |
 
 ### Examples
 
@@ -178,6 +178,8 @@ cd terraform/modules/api-gateway && terraform init -backend=false && terraform v
 cd examples/api-gateway && terraform init -backend=false && terraform validate
 tflint --init && tflint --chdir terraform/modules/api-gateway
 checkov -d . --config-file .checkov.yml
+make check-action-pins          # third-party uses: must be 40-char SHAs
+make test-check-action-pins     # unit tests for the pin checker
 ```
 
 ---
@@ -204,12 +206,28 @@ Image pin: `floci/floci:2.4.0@sha256:5ee85db604c4aa74ac76e07ea5cc83086f37bb472bf
 
 ---
 
+## Image and base-OS patch cadence
+
+Digest pinning stops surprise pulls; it does **not** stop known CVEs in the pinned bits (e.g. base-image OpenSSH bugs). Treat digests as a lockfile that must be refreshed on purpose.
+
+| Artifact | Where pinned | Who bumps | Cadence |
+|----------|--------------|-----------|---------|
+| Envoy / OTel Collector images | `terraform/modules/api-gateway/variables.tf` (`@sha256:…`, validation rejects unpinned overrides) | Platform maintainers (PR) | Monthly, and within 7 days of a relevant CVE advisory |
+| Floci emulator image | `scripts/test-floci.sh` (`FLOCI_IMAGE`, digest) | Platform maintainers | When bumping the Floci apply job or on Floci security notes |
+| Third-party GitHub Actions | `.github/workflows/*.yml` (`@<40-char-sha> # tag`) | Dependabot (`github-actions` in `.github/dependabot.yml`) + human review | Weekly Dependabot; merge after CI green |
+
+**How to bump a container digest:** pull the intended tag, record `RepoDigest` / `sha256:…`, update the default in `variables.tf` (keep a readable tag prefix), run `terraform test` / module validate, open a PR. Do not “unpin to latest” to pick up patches.
+
+**Ownership:** the platform team that merges to this repo owns the cadence above. Service teams consuming these templates should inherit the same digests or document their own refresh policy.
+
+---
+
 ## Philosophy
 
 - **OIDC everywhere** — no long-lived cloud credentials in CI or on pods  
 - **OTel by default** — new services get trace/metric wiring on day one  
 - **Onboarding is a product** — time-to-safe-production is a platform metric  
-- **Safe by default** — PDBs, `maxUnavailable=0`, localhost admin, digest-pinned images, IRSA `aud`+`sub`, smoke checks before success  
+- **Safe by default** — PDBs, `maxUnavailable=0`, localhost admin, digest-pinned images, SHA-pinned third-party Actions (`owner/action@<40-char-sha> # tag`), IRSA `aud`+`sub`, smoke checks before success  
 
 ## Contributing
 
