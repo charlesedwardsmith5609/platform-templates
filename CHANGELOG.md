@@ -5,6 +5,7 @@ Format follows Keep a Changelog. Dates are UTC.
 ## [Unreleased] - 2026-11-11
 
 - SHA-pin all third-party GitHub Actions `uses:` (commit + tag comment); CI pin-check job + `make check-action-pins`
+- Document image/base-OS digest refresh cadence and ownership in README
 
 ## [Unreleased] - 2026-11-06
 

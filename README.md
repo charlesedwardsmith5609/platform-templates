@@ -206,6 +206,22 @@ Image pin: `floci/floci:2.4.0@sha256:5ee85db604c4aa74ac76e07ea5cc83086f37bb472bf
 
 ---
 
+## Image and base-OS patch cadence
+
+Digest pinning stops surprise pulls; it does **not** stop known CVEs in the pinned bits (e.g. base-image OpenSSH bugs). Treat digests as a lockfile that must be refreshed on purpose.
+
+| Artifact | Where pinned | Who bumps | Cadence |
+|----------|--------------|-----------|---------|
+| Envoy / OTel Collector images | `terraform/modules/api-gateway/variables.tf` (`@sha256:…`, validation rejects unpinned overrides) | Platform maintainers (PR) | Monthly, and within 7 days of a relevant CVE advisory |
+| Floci emulator image | `scripts/test-floci.sh` (`FLOCI_IMAGE`, digest) | Platform maintainers | When bumping the Floci apply job or on Floci security notes |
+| Third-party GitHub Actions | `.github/workflows/*.yml` (`@<40-char-sha> # tag`) | Dependabot (`github-actions` in `.github/dependabot.yml`) + human review | Weekly Dependabot; merge after CI green |
+
+**How to bump a container digest:** pull the intended tag, record `RepoDigest` / `sha256:…`, update the default in `variables.tf` (keep a readable tag prefix), run `terraform test` / module validate, open a PR. Do not “unpin to latest” to pick up patches.
+
+**Ownership:** the platform team that merges to this repo owns the cadence above. Service teams consuming these templates should inherit the same digests or document their own refresh policy.
+
+---
+
 ## Philosophy
 
 - **OIDC everywhere** — no long-lived cloud credentials in CI or on pods  
