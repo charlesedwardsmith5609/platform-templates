@@ -2,6 +2,10 @@
 
 Format follows Keep a Changelog. Dates are UTC.
 
+## [Unreleased] - 2026-11-11
+
+- SHA-pin all third-party GitHub Actions `uses:` (commit + tag comment); CI pin-check job + `make check-action-pins`
+
 ## [Unreleased] - 2026-11-06
 
 - Floci apply CI job + `make test-floci` for IRSA IAM and Secrets Manager (K8s stays on validate/render)

@@ -20,7 +20,7 @@ The goal: make the safe path the easy path.
 |----------|-------------|
 | [`.github/workflows/service-onboarding.yml`](.github/workflows/service-onboarding.yml) | Namespace, IRSA ServiceAccount, OTel ConfigMap, smoke checks, runbook PR |
 | [`.github/workflows/secrets-injection.yml`](.github/workflows/secrets-injection.yml) | Reusable workflow: OIDC → STS → Secrets Manager → Kubernetes Secret → rollout |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` / `test`, TFLint, Checkov, actionlint, Floci apply |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` / `test`, TFLint, Checkov, actionlint, action SHA pins, Floci apply |
 
 ### Examples
 
@@ -178,6 +178,8 @@ cd terraform/modules/api-gateway && terraform init -backend=false && terraform v
 cd examples/api-gateway && terraform init -backend=false && terraform validate
 tflint --init && tflint --chdir terraform/modules/api-gateway
 checkov -d . --config-file .checkov.yml
+make check-action-pins          # third-party uses: must be 40-char SHAs
+make test-check-action-pins     # unit tests for the pin checker
 ```
 
 ---
@@ -209,7 +211,7 @@ Image pin: `floci/floci:2.4.0@sha256:5ee85db604c4aa74ac76e07ea5cc83086f37bb472bf
 - **OIDC everywhere** — no long-lived cloud credentials in CI or on pods  
 - **OTel by default** — new services get trace/metric wiring on day one  
 - **Onboarding is a product** — time-to-safe-production is a platform metric  
-- **Safe by default** — PDBs, `maxUnavailable=0`, localhost admin, digest-pinned images, IRSA `aud`+`sub`, smoke checks before success  
+- **Safe by default** — PDBs, `maxUnavailable=0`, localhost admin, digest-pinned images, SHA-pinned third-party Actions (`owner/action@<40-char-sha> # tag`), IRSA `aud`+`sub`, smoke checks before success  
 
 ## Contributing
 
