@@ -192,6 +192,8 @@ Each workflow sets `permissions: {}`. A job receives only the scopes listed on t
 | [`service-onboarding.yml`](.github/workflows/service-onboarding.yml) | `generate-runbook` | `contents: write`, `pull-requests: write` | Checkout, push the runbook branch, `gh pr create` |
 | [`secrets-injection.yml`](.github/workflows/secrets-injection.yml) | `deploy` | `id-token: write`, `contents: read` | OIDC assume-role and checkout |
 
+Supply-chain assumptions for these workflows: [CI threat model](docs/ci-threat-model.md).
+
 ## Local checks
 
 ```bash
