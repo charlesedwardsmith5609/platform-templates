@@ -4,6 +4,7 @@ Format follows Keep a Changelog. Dates are UTC.
 
 ## [Unreleased] - 2026-11-11
 
+- Pin the actionlint installer to commit 3795ba2 (v1.7.12) instead of the main branch
 - Document CI threat-model controls: revoke committed keys, alert on branch-protection overrides and deleted workflow runs, keep unscoped CLI tokens out of automation
 - Set workflow `permissions: {}` and document the per-job token scope table
 - SHA-pin all third-party GitHub Actions `uses:` (commit + tag comment); CI pin-check job + `make check-action-pins`
