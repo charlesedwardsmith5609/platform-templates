@@ -1,6 +1,6 @@
 # Local helpers mirroring CI. Default goal is help.
 
-.PHONY: help test-floci fmt-check check-action-pins test-check-action-pins check-oidc-trust test-check-oidc-trust
+.PHONY: help test-floci fmt-check check-action-pins test-check-action-pins check-oidc-trust test-check-oidc-trust test-docs-claims
 
 help:
 	@echo "Targets:"
@@ -10,6 +10,7 @@ help:
 	@echo "  test-check-action-pins  Unit tests for the action pin checker"
 	@echo "  check-oidc-trust        Fail on wildcard or missing GitHub Actions OIDC sub"
 	@echo "  test-check-oidc-trust   Unit tests for the OIDC trust checker"
+	@echo "  test-docs-claims        Grep docs for claims the review found wrong"
 
 test-floci:
 	./scripts/test-floci.sh
@@ -28,3 +29,6 @@ check-oidc-trust:
 
 test-check-oidc-trust:
 	./scripts/test-check-oidc-trust.sh
+
+test-docs-claims:
+	./scripts/test-docs-claims.sh

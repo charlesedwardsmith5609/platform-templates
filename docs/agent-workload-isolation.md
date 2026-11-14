@@ -4,7 +4,7 @@ This page lists isolation options. It does not add a module. Fields named below 
 
 ## One workload, one identity
 
-The gateway module creates one namespace and one ServiceAccount, and the IAM trust policy sets the OIDC `sub` to `system:serviceaccount:<namespace>:<service>-gateway`. An agent should follow that shape: one namespace and one ServiceAccount per agent, and a trust policy whose subject is that pair. A shared ServiceAccount shares the cloud role.
+The gateway module creates one namespace only when `create_namespace` is true, and one ServiceAccount, and the IAM trust policy sets the OIDC `sub` to `system:serviceaccount:<namespace>:<service>-gateway`. An agent should follow that shape: one namespace and one ServiceAccount per agent, and a trust policy whose subject is that pair. A shared ServiceAccount shares the cloud role.
 
 ## Network
 
