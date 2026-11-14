@@ -17,3 +17,13 @@ Options: add the vendor conditions to the gateway role; add a separate module.
 Choice: `terraform/modules/vendor-trust`. The gateway role is unchanged. The "at least one of source IP or org id" rule is a resource precondition, because a variable validation block cannot read another variable. The role is created with no attached permissions.
 
 Why: The gateway principal is an EKS OIDC provider, not a vendor account. Folding vendor conditions into it would change a working trust policy. No permissions on the new role fails closed until a caller attaches one.
+
+## 2026-11-13: Workload isolation doc cites only fields this repo sets
+
+Context: A page on isolating agent workloads on Kubernetes. The instruction is not to invent pod spec fields.
+
+Options: name common pod fields from memory; describe options and mark unchecked fields as needs verification.
+
+Choice: `docs/agent-workload-isolation.md` quotes the security context, ServiceAccount, and NetworkPolicy fields already present in `terraform/modules/api-gateway`. Host namespaces, a separate node pool, and admission rules are described without field names and marked needs verification.
+
+Why: A field name that was not read from this repo or from a spec check would be a guess.
