@@ -14,7 +14,7 @@ Context: Cross-account vendor trust must require `sts:ExternalId` and at least o
 
 Options: add the vendor conditions to the gateway role; add a separate module.
 
-Choice: `terraform/modules/vendor-trust`. The gateway role is unchanged. The "at least one of source IP or org id" rule is a resource precondition, because a variable validation block cannot read another variable. The role is created with no attached permissions.
+Choice: `terraform/modules/vendor-trust`. The gateway role is unchanged. The source-condition rule is a resource precondition, because a variable validation block cannot read another variable in the Terraform 1.7 floor. (Superseded in part: the rule is now "exactly one of source IP or VPC endpoint", see "Vendor second condition" below.) The role is created with no attached permissions.
 
 Why: The gateway principal is an EKS OIDC provider, not a vendor account. Folding vendor conditions into it would change a working trust policy. No permissions on the new role fails closed until a caller attaches one.
 
@@ -56,7 +56,7 @@ Why: Both conditions are ANDed in an IAM policy, and a request through a VPC end
 
 ## 2026-11-14: OIDC checker is structural (D4)
 
-Choice: `scripts/check-oidc-trust.sh` replaces the line grep. JSON and `.json.tpl` go through jq. `.tf` and `.hcl` are converted to JSON by an awk tokenizer that understands `jsonencode({...})` object literals and `aws_iam_policy_document` blocks, then checked the same way. Every Allow statement needs a `sub` and an `aud` under `StringEquals` or `StringLike` (case-insensitive, `ForAnyValue:` allowed) with no `*` or `?`. `StringNot*`, `ForAllValues:` and `IfExists` on `sub` fail. A `.tf` file that names the host but uses `:sub` where the tokenizer cannot classify it (a `format()` key, a heredoc, `dynamic` blocks) fails. Directories named `testdata` are scanned unless `--skip-testdata` is passed. `--require-match` makes zero matches exit 1. Exit codes: 0 pass, 1 findings, 2 usage or read error.
+Choice: `scripts/check-oidc-trust.sh` replaces the line grep. JSON and `.json.tpl` go through jq. `.tf` and `.hcl` are converted to JSON by an awk tokenizer that understands `jsonencode({...})` object literals and `aws_iam_policy_document` blocks, then checked the same way. Every Allow statement needs a `sub` and an `aud` under `StringEquals` or `StringLike` (case-insensitive, `ForAnyValue:` allowed) with no `*` or `?`. `StringNot*`, `ForAllValues:` and `IfExists` fail on both `sub` and `aud`. `Deny` statements are not checked. A `.tf` file that names the host but uses `:sub` where the tokenizer cannot classify it (a `format()` key, a heredoc, `dynamic` blocks) fails. Directories named `testdata` are scanned unless `--skip-testdata` is passed. `--require-match` makes zero matches exit 1. Exit codes: 0 pass, 1 findings, 2 usage or read error.
 
 Why: The grep passed several unsafe policies and failed a correct one. Failing closed on forms it cannot read is the D4 rule. Limits: HCL expressions (`var.x`, function calls) are opaque, so a sub or aud given as an expression fails as unverifiable. The checker reads source files, not `terraform show -json` output.
 
@@ -66,6 +66,6 @@ Context: Fail on wildcard `sub` claims in any trust policy that trusts `token.ac
 
 Options: parse every IAM trust policy and guess which issuer is GitHub; add an example policy that names the GitHub issuer and check that file.
 
-Choice: `scripts/check-oidc-trust.sh` scans `.tf`, `.json`, and `.hcl` for that host. A missing `sub`, an empty `sub`, or a `sub` containing `*` fails the check. `scripts/testdata/oidc-trust/` holds a wildcard fixture and a missing-sub fixture, and the unit test requires those messages. The repo scan skips `testdata` so the bad fixtures do not fail CI. `examples/github-oidc-role` is the policy the repo scan must find. A scan that finds zero matching files fails closed.
+Choice: `scripts/check-oidc-trust.sh` scans `.tf`, `.json`, and `.hcl` for that host. A missing `sub`, an empty `sub`, or a `sub` containing `*` fails the check. (The rules were later extended; see D4.) `scripts/testdata/oidc-trust/` holds a wildcard fixture and a missing-sub fixture, and the unit test requires those messages. The repo scan skips `testdata` so the bad fixtures do not fail CI. `examples/github-oidc-role` is the policy the repo scan must find. A scan that finds zero matching files exits 1 only with `--require-match`, which CI and `make check-oidc-trust` pass.
 
-Why: The existing role is not a GitHub Actions trust policy. Inventing a match against the EKS issuer would flag the wrong thing. A missing `sub` is treated like a wildcard because both let any workflow assume the role. The checker is line-based: a file that contains one specific `sub` and another statement with no `sub` can pass. The example has one statement.
+Why: The existing role is not a GitHub Actions trust policy. Inventing a match against the EKS issuer would flag the wrong thing. A missing `sub` is treated like a wildcard because both let any workflow assume the role. (Superseded by the structural checker in "OIDC checker is structural (D4)": the checker now evaluates every Allow statement, so a second statement with no `sub` fails.)

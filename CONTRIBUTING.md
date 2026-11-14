@@ -4,7 +4,13 @@ Issues and pull requests are welcome. Keep changes small and focused, and explai
 
 ## Before opening a PR
 
-Run the same checks CI runs:
+Run the local gate (`ALLOW_SKIP=1` accepts skipped stages such as Floci without docker):
+
+```bash
+bash scripts/check.sh
+```
+
+TFLint, Checkov, and actionlint run in CI only. To run them yourself:
 
 ```bash
 terraform fmt -check -recursive

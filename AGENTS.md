@@ -84,6 +84,6 @@ change the plan or the code until the human decides.
 
 platform-templates is a set of reusable Terraform modules and GitHub Actions workflows for platform engineering teams: Envoy API gateway on EKS, OIDC workload identity (IRSA), service onboarding automation, and deploy-time secrets sync without long-lived cloud credentials. These are reference templates; the goal is to make the safe path the easy path.
 
-- Validation gate: `bash scripts/check.sh`. Stages that cannot run (no terraform, no docker) report a loud SKIP and fail the `shell` check unless `ALLOW_SKIP=1` is set; set `TF_BIN` to point at a terraform binary.
+- Validation gate: `bash scripts/check.sh`. It runs the misbehavior and assertion helpers, then `scripts/checks/shell.sh` (shellcheck, the repo shell tests including `check-oidc-trust.sh --skip-testdata --require-match`, `terraform fmt -check`, `terraform test` for each module that has tests, and the Floci apply when a docker daemon is available). A stage whose tool is missing (shellcheck, terraform, or a docker daemon) reports a loud SKIP and fails the `shell` check unless `ALLOW_SKIP=1` is set; set `TF_BIN` to point at a terraform binary. TFLint, Checkov, and actionlint run in CI only, not in this gate.
 - Design decisions are in `DECISIONS.md`; agreed requirements are in `REQUIREMENTS.md`. Read both before changing behavior.
 - Terraform is pinned to 1.9.8 in CI. Modules: `terraform/modules/api-gateway`, `terraform/modules/vendor-trust`.

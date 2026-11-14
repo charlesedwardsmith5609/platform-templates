@@ -20,7 +20,7 @@ Automation uses scoped credentials: the workflow `GITHUB_TOKEN` with the per-job
 
 `ci.yml` runs on `pull_request`. Anyone who can open a pull request can open many of them. Each run shows which jobs start, which steps fail, and what the logs contain. That is enough to map the workflow without merging.
 
-This page does not add a rate limit. The controls already in the tree are `permissions: {}` on each workflow, a short per-job permission list, and no `pull_request_target` trigger. `secrets-injection.yml` is `workflow_call` only. `service-onboarding.yml` is `workflow_dispatch` only. Whether a fork pull request starts `ci.yml` depends on repository and organization settings (needs verification).
+This page does not add a rate limit. The controls already in the tree are `permissions: {}` on each workflow, a short per-job permission list, and no `pull_request_target` trigger. `secrets-injection.yml` is `workflow_call` only. `service-onboarding.yml` runs on `workflow_dispatch` and `repository_dispatch` (type `onboard-service`). Whether a fork pull request starts `ci.yml` depends on repository and organization settings (needs verification).
 
 needs verification: the exact token GitHub issues for a fork pull request against a private repository. The workflows set `permissions` so the job does not inherit an unscoped default. Confirm the fork token against the GitHub docs for the plan you use before treating that as a boundary.
 
