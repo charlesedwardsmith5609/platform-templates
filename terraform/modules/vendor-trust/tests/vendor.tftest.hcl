@@ -281,3 +281,114 @@ run "blank_tag_fails" {
     var.tags,
   ]
 }
+
+run "one_character_external_id_fails" {
+  command = plan
+
+  variables {
+    external_id = "a"
+  }
+
+  expect_failures = [
+    var.external_id,
+  ]
+}
+
+run "too_long_external_id_fails" {
+  command = plan
+
+  variables {
+    external_id = "${join("", [for i in range(1000) : "a"])}${join("", [for i in range(225) : "a"])}"
+  }
+
+  expect_failures = [
+    var.external_id,
+  ]
+}
+
+run "external_id_with_space_fails" {
+  command = plan
+
+  variables {
+    external_id = "has space"
+  }
+
+  expect_failures = [
+    var.external_id,
+  ]
+}
+
+run "placeholder_external_id_fails" {
+  command = plan
+
+  variables {
+    external_id = "replace-me"
+  }
+
+  expect_failures = [
+    var.external_id,
+  ]
+}
+
+run "placeholder_check_is_case_insensitive" {
+  command = plan
+
+  variables {
+    external_id = "Example-External-ID"
+  }
+
+  expect_failures = [
+    var.external_id,
+  ]
+}
+
+run "changeme_external_id_fails" {
+  command = plan
+
+  variables {
+    external_id = "CHANGEME"
+  }
+
+  expect_failures = [
+    var.external_id,
+  ]
+}
+
+run "two_character_external_id_passes" {
+  command = plan
+
+  variables {
+    external_id = "ab"
+  }
+
+  assert {
+    condition     = jsondecode(aws_iam_role.vendor.assume_role_policy).Statement[0].Condition.StringEquals["sts:ExternalId"] == "ab"
+    error_message = "A 2 character external id must be accepted."
+  }
+}
+
+run "max_length_external_id_passes" {
+  command = plan
+
+  variables {
+    external_id = "${join("", [for i in range(1000) : "a"])}${join("", [for i in range(224) : "a"])}"
+  }
+
+  assert {
+    condition     = length(jsondecode(aws_iam_role.vendor.assume_role_policy).Statement[0].Condition.StringEquals["sts:ExternalId"]) == 1224
+    error_message = "A 1224 character external id must be accepted."
+  }
+}
+
+run "full_sts_character_set_passes" {
+  command = plan
+
+  variables {
+    external_id = "Ab0+=,.@:/_-xyz"
+  }
+
+  assert {
+    condition     = jsondecode(aws_iam_role.vendor.assume_role_policy).Statement[0].Condition.StringEquals["sts:ExternalId"] == "Ab0+=,.@:/_-xyz"
+    error_message = "Every STS external id character must be accepted."
+  }
+}

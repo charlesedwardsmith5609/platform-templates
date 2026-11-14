@@ -140,8 +140,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Unit test OIDC trust checker
         run: ./scripts/test-check-oidc-trust.sh
+      - name: Check vendor-trust version floor, lock hashes, and checker wiring
+        run: ./scripts/test-terraform-config.sh
       - name: Check GitHub OIDC subjects
-        run: ./scripts/check-oidc-trust.sh --skip-testdata
+        run: ./scripts/check-oidc-trust.sh --skip-testdata --require-match
 
   # Separate from fmt/validate/TFLint/Checkov so Floci limitations cannot block those jobs.
   floci-apply:

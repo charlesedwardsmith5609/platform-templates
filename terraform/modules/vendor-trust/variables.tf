@@ -9,12 +9,22 @@ variable "vendor_account_id" {
 }
 
 variable "external_id" {
-  description = "Value required in sts:ExternalId. The vendor must present this exact string."
+  description = "Value required in sts:ExternalId. The vendor must present this exact string. Not a secret, but unique per customer."
   type        = string
 
   validation {
-    condition     = length(trimspace(var.external_id)) > 0 && length(var.external_id) <= 1224
-    error_message = "external_id must be 1 to 1224 characters and not blank."
+    condition     = length(var.external_id) >= 2 && length(var.external_id) <= 1224
+    error_message = "external_id must be 2 to 1224 characters."
+  }
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9+=,.@:/_-]+$", var.external_id))
+    error_message = "external_id may only contain letters, digits, and + = , . @ : / _ - (the STS ExternalId character set)."
+  }
+
+  validation {
+    condition     = !contains(["replace-me", "example-external-id", "changeme"], lower(var.external_id))
+    error_message = "external_id must not be a placeholder value. Use a unique per-customer value."
   }
 }
 

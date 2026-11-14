@@ -1,6 +1,6 @@
 # Local helpers mirroring CI. Default goal is help.
 
-.PHONY: help test-floci fmt-check check-action-pins test-check-action-pins check-oidc-trust test-check-oidc-trust test-docs-claims
+.PHONY: help test-floci fmt-check check-action-pins test-check-action-pins check-oidc-trust test-check-oidc-trust test-docs-claims test-terraform-config
 
 help:
 	@echo "Targets:"
@@ -10,6 +10,7 @@ help:
 	@echo "  test-check-action-pins  Unit tests for the action pin checker"
 	@echo "  check-oidc-trust        Fail on wildcard, missing, or unclassifiable GitHub Actions OIDC sub or aud"
 	@echo "  test-check-oidc-trust   Unit tests for the OIDC trust checker"
+	@echo "  test-terraform-config   Check vendor-trust version floor, lock hashes, and --require-match wiring"
 	@echo "  test-docs-claims        Grep docs for claims the review found wrong"
 
 test-floci:
@@ -25,10 +26,13 @@ test-check-action-pins:
 	./scripts/test-check-action-pins.sh
 
 check-oidc-trust:
-	./scripts/check-oidc-trust.sh --skip-testdata
+	./scripts/check-oidc-trust.sh --skip-testdata --require-match
 
 test-check-oidc-trust:
 	./scripts/test-check-oidc-trust.sh
 
 test-docs-claims:
 	./scripts/test-docs-claims.sh
+
+test-terraform-config:
+	./scripts/test-terraform-config.sh

@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.7.0"
 
   required_providers {
     aws = {
@@ -16,7 +16,7 @@ provider "aws" {
 module "vendor" {
   source            = "../../terraform/modules/vendor-trust"
   vendor_account_id = "111122223333"
-  external_id       = "example-external-id"
+  external_id       = "acme-7f3a9c1e-prod"
   source_ip_cidrs   = ["203.0.113.0/24"]
 
   tags = {
