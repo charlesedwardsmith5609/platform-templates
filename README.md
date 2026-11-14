@@ -29,6 +29,7 @@ The goal: make the safe path the easy path.
 |---------|---------|
 | [`examples/api-gateway`](examples/api-gateway) | Root-module composition used by CI `terraform validate` |
 | [`examples/vendor-trust`](examples/vendor-trust) | Validates the vendor-trust module. Placeholder external id, no apply |
+| [`examples/github-oidc-role`](examples/github-oidc-role) | GitHub Actions OIDC trust with one repository subject. Checked by `scripts/check-oidc-trust.sh` |
 | [`examples/template-render`](examples/template-render) | Renders Envoy/OTel templates without cloud providers |
 | [`examples/floci-aws`](examples/floci-aws) | Floci apply fixture for IRSA IAM + Secrets Manager (no K8s) |
 

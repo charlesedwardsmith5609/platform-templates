@@ -37,3 +37,21 @@ Options: rename the gateway tags; require the three lowercase keys only on the n
 Choice: `var.tags` on `vendor-trust` rejects a map that lacks any of the three keys or sets one to blank. The gateway module is unchanged.
 
 Why: Renaming tags on a module that is already published would change caller state. The new keys are enforced where this branch adds a role. Empty values fail closed the same way a missing key does.
+
+## 2026-11-13: Mass-probe note does not add a rate limit
+
+Context: The threat model should describe an attacker opening many pull requests to watch workflow behavior, and should say that workflow logs are a secret sink.
+
+Choice: docs only. No new workflow, no concurrency cap, and no new check. The note names the triggers already in `.github/workflows`. The fork-token behavior is marked needs verification.
+
+Why: A guessed GitHub token rule would be presented as a control. The item asked for a section, not a gate.
+
+## 2026-11-13: GitHub OIDC check targets a new example
+
+Context: Fail on wildcard `sub` claims in any trust policy that trusts `token.actions.githubusercontent.com`, with a negative fixture. The API gateway role trusts an EKS OIDC issuer URL from a variable. It does not mention `token.actions.githubusercontent.com`.
+
+Options: parse every IAM trust policy and guess which issuer is GitHub; add an example policy that names the GitHub issuer and check that file.
+
+Choice: `scripts/check-oidc-trust.sh` scans `.tf`, `.json`, and `.hcl` for that host. A missing `sub`, an empty `sub`, or a `sub` containing `*` fails the check. `scripts/testdata/oidc-trust/` holds a wildcard fixture and a missing-sub fixture, and the unit test requires those messages. The repo scan skips `testdata` so the bad fixtures do not fail CI. `examples/github-oidc-role` is the policy the repo scan must find. A scan that finds zero matching files fails closed.
+
+Why: The existing role is not a GitHub Actions trust policy. Inventing a match against the EKS issuer would flag the wrong thing. A missing `sub` is treated like a wildcard because both let any workflow assume the role. The checker is line-based: a file that contains one specific `sub` and another statement with no `sub` can pass. The example has one statement.
