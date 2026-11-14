@@ -2,6 +2,7 @@ locals {
   string_equals = merge(
     { "sts:ExternalId" = var.external_id },
     var.principal_org_id == null ? {} : { "aws:PrincipalOrgID" = var.principal_org_id },
+    length(var.source_vpce_ids) == 0 ? {} : { "aws:SourceVpce" = var.source_vpce_ids },
   )
 
   condition = merge(
@@ -14,9 +15,10 @@ resource "aws_iam_role" "vendor" {
   name = var.role_name
 
   lifecycle {
+    # aws:PrincipalOrgID does not count: the principal is already one account.
     precondition {
-      condition     = length(var.source_ip_cidrs) > 0 || (var.principal_org_id != null && var.principal_org_id != "")
-      error_message = "Vendor trust requires aws:SourceIp or aws:PrincipalOrgID. Set source_ip_cidrs or principal_org_id."
+      condition     = (length(var.source_ip_cidrs) > 0) != (length(var.source_vpce_ids) > 0)
+      error_message = "Vendor trust requires exactly one of source_ip_cidrs (aws:SourceIp) or source_vpce_ids (aws:SourceVpce). principal_org_id is optional and cannot replace them."
     }
   }
 

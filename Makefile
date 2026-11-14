@@ -8,7 +8,7 @@ help:
 	@echo "  fmt-check               terraform fmt -check -recursive terraform examples"
 	@echo "  check-action-pins       Fail if any third-party uses: lacks a 40-char SHA"
 	@echo "  test-check-action-pins  Unit tests for the action pin checker"
-	@echo "  check-oidc-trust        Fail on wildcard or missing GitHub Actions OIDC sub"
+	@echo "  check-oidc-trust        Fail on wildcard, missing, or unclassifiable GitHub Actions OIDC sub or aud"
 	@echo "  test-check-oidc-trust   Unit tests for the OIDC trust checker"
 	@echo "  test-docs-claims        Grep docs for claims the review found wrong"
 
@@ -25,7 +25,7 @@ test-check-action-pins:
 	./scripts/test-check-action-pins.sh
 
 check-oidc-trust:
-	./scripts/check-oidc-trust.sh
+	./scripts/check-oidc-trust.sh --skip-testdata
 
 test-check-oidc-trust:
 	./scripts/test-check-oidc-trust.sh

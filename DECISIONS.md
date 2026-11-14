@@ -46,6 +46,20 @@ Choice: docs only. No new workflow, no concurrency cap, and no new check. The no
 
 Why: A guessed GitHub token rule would be presented as a control. The item asked for a section, not a gate.
 
+## 2026-11-14: Vendor second condition is SourceIp or SourceVpce (D3)
+
+Context: `aws:PrincipalOrgID` adds little because the principal is already one account.
+
+Choice: `vendor-trust` requires exactly one of `source_ip_cidrs` (valid CIDRs, no `/0`) or `source_vpce_ids`. `principal_org_id` stays optional and additive. Setting both source conditions is rejected.
+
+Why: Both conditions are ANDed in an IAM policy, and a request through a VPC endpoint does not carry a public source IP the vendor could list, so both together is almost certainly a mistake. Exactly-one is the stricter reading of D3 (assumption, D14). `source_ip_cidrs` is `nullable = false`, so a null is replaced by the empty default and then fails the role precondition.
+
+## 2026-11-14: OIDC checker is structural (D4)
+
+Choice: `scripts/check-oidc-trust.sh` replaces the line grep. JSON and `.json.tpl` go through jq. `.tf` and `.hcl` are converted to JSON by an awk tokenizer that understands `jsonencode({...})` object literals and `aws_iam_policy_document` blocks, then checked the same way. Every Allow statement needs a `sub` and an `aud` under `StringEquals` or `StringLike` (case-insensitive, `ForAnyValue:` allowed) with no `*` or `?`. `StringNot*`, `ForAllValues:` and `IfExists` on `sub` fail. A `.tf` file that names the host but uses `:sub` where the tokenizer cannot classify it (a `format()` key, a heredoc, `dynamic` blocks) fails. Directories named `testdata` are scanned unless `--skip-testdata` is passed. `--require-match` makes zero matches exit 1. Exit codes: 0 pass, 1 findings, 2 usage or read error.
+
+Why: The grep passed several unsafe policies and failed a correct one. Failing closed on forms it cannot read is the D4 rule. Limits: HCL expressions (`var.x`, function calls) are opaque, so a sub or aud given as an expression fails as unverifiable. The checker reads source files, not `terraform show -json` output.
+
 ## 2026-11-13: GitHub OIDC check targets a new example
 
 Context: Fail on wildcard `sub` claims in any trust policy that trusts `token.actions.githubusercontent.com`, with a negative fixture. The API gateway role trusts an EKS OIDC issuer URL from a variable. It does not mention `token.actions.githubusercontent.com`.

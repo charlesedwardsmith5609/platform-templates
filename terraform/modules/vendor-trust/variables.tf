@@ -13,24 +13,37 @@ variable "external_id" {
   type        = string
 
   validation {
-    condition     = length(var.external_id) > 0 && length(var.external_id) <= 1224
-    error_message = "external_id must be 1 to 1224 characters. An empty value is not a secret."
+    condition     = length(trimspace(var.external_id)) > 0 && length(var.external_id) <= 1224
+    error_message = "external_id must be 1 to 1224 characters and not blank."
   }
 }
 
 variable "source_ip_cidrs" {
-  description = "CIDRs for aws:SourceIp. Empty is allowed only when principal_org_id is set."
+  description = "CIDRs for aws:SourceIp. Set this or source_vpce_ids, not both. A /0 range is rejected."
   type        = list(string)
   default     = []
+  nullable    = false
 
   validation {
-    condition     = alltrue([for cidr in var.source_ip_cidrs : length(cidr) > 0])
-    error_message = "source_ip_cidrs entries must be non-empty. The role precondition requires this list or principal_org_id."
+    condition     = alltrue([for cidr in var.source_ip_cidrs : can(cidrhost(cidr, 0)) && !endswith(cidr, "/0")])
+    error_message = "source_ip_cidrs entries must be valid CIDR blocks and must not be a /0 range."
+  }
+}
+
+variable "source_vpce_ids" {
+  description = "VPC endpoint ids for aws:SourceVpce. Set this or source_ip_cidrs, not both."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition     = alltrue([for id in var.source_vpce_ids : can(regex("^vpce-[0-9a-f]{8,17}$", id))])
+    error_message = "source_vpce_ids entries must look like vpce-0123456789abcdef0."
   }
 }
 
 variable "principal_org_id" {
-  description = "Optional aws:PrincipalOrgID. Set this or source_ip_cidrs. Null means the condition is omitted."
+  description = "Optional aws:PrincipalOrgID, added on top of the source condition. It is never enough on its own. Null omits it."
   type        = string
   default     = null
 

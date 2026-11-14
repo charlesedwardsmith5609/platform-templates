@@ -1,6 +1,6 @@
 # vendor-trust
 
-Cross-account IAM role for a vendor. The trust policy requires `sts:ExternalId` and at least one of `aws:SourceIp` or `aws:PrincipalOrgID`. The role has no attached permissions.
+Cross-account IAM role for a vendor. The trust policy requires `sts:ExternalId` and exactly one of `aws:SourceIp` (`source_ip_cidrs`, valid CIDRs, no `/0`) or `aws:SourceVpce` (`source_vpce_ids`). `aws:PrincipalOrgID` (`principal_org_id`) is optional and is only added next to one of those; it cannot satisfy the rule alone. The role has no attached permissions.
 
 See [docs/vendor-access.md](../../../docs/vendor-access.md).
 

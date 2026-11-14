@@ -61,7 +61,9 @@ jobs:
 
       - name: Terraform test vendor trust
         working-directory: terraform/modules/vendor-trust
-        run: terraform test
+        run: |
+          terraform init -backend=false
+          terraform test
 
   tflint:
     name: TFLint
@@ -139,7 +141,7 @@ jobs:
       - name: Unit test OIDC trust checker
         run: ./scripts/test-check-oidc-trust.sh
       - name: Check GitHub OIDC subjects
-        run: ./scripts/check-oidc-trust.sh
+        run: ./scripts/check-oidc-trust.sh --skip-testdata
 
   # Separate from fmt/validate/TFLint/Checkov so Floci limitations cannot block those jobs.
   floci-apply:
