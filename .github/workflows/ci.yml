@@ -34,6 +34,12 @@ jobs:
           terraform init -backend=false
           terraform validate
 
+      - name: Validate vendor-trust example
+        working-directory: examples/vendor-trust
+        run: |
+          terraform init -backend=false
+          terraform validate
+
       - name: Validate example composition
         working-directory: examples/api-gateway
         run: |
@@ -51,6 +57,10 @@ jobs:
 
       - name: Terraform test
         working-directory: terraform/modules/api-gateway
+        run: terraform test
+
+      - name: Terraform test vendor trust
+        working-directory: terraform/modules/vendor-trust
         run: terraform test
 
   tflint:
@@ -118,6 +128,18 @@ jobs:
         run: ./scripts/test-check-action-pins.sh
       - name: Check workflow action pins
         run: ./scripts/check-action-pins.sh
+
+  oidc-trust:
+    name: GitHub OIDC sub claims
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Unit test OIDC trust checker
+        run: ./scripts/test-check-oidc-trust.sh
+      - name: Check GitHub OIDC subjects
+        run: ./scripts/check-oidc-trust.sh
 
   # Separate from fmt/validate/TFLint/Checkov so Floci limitations cannot block those jobs.
   floci-apply:
