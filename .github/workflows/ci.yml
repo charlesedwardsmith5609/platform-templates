@@ -34,6 +34,12 @@ jobs:
           terraform init -backend=false
           terraform validate
 
+      - name: Validate vendor-trust example
+        working-directory: examples/vendor-trust
+        run: |
+          terraform init -backend=false
+          terraform validate
+
       - name: Validate example composition
         working-directory: examples/api-gateway
         run: |
@@ -51,6 +57,10 @@ jobs:
 
       - name: Terraform test
         working-directory: terraform/modules/api-gateway
+        run: terraform test
+
+      - name: Terraform test vendor trust
+        working-directory: terraform/modules/vendor-trust
         run: terraform test
 
   tflint:

@@ -13,6 +13,7 @@ The goal: make the safe path the easy path.
 | Module | What it provisions |
 |--------|--------------------|
 | [`terraform/modules/api-gateway`](terraform/modules/api-gateway) | Envoy gateway on EKS with IRSA, OTel sidecar, PDB, and baseline NetworkPolicy |
+| [`terraform/modules/vendor-trust`](terraform/modules/vendor-trust) | Cross-account vendor role requiring `sts:ExternalId` and `aws:SourceIp` or `aws:PrincipalOrgID` |
 
 ### GitHub Actions workflows
 
@@ -27,6 +28,7 @@ The goal: make the safe path the easy path.
 | Example | Purpose |
 |---------|---------|
 | [`examples/api-gateway`](examples/api-gateway) | Root-module composition used by CI `terraform validate` |
+| [`examples/vendor-trust`](examples/vendor-trust) | Validates the vendor-trust module. Placeholder external id, no apply |
 | [`examples/template-render`](examples/template-render) | Renders Envoy/OTel templates without cloud providers |
 | [`examples/floci-aws`](examples/floci-aws) | Floci apply fixture for IRSA IAM + Secrets Manager (no K8s) |
 
