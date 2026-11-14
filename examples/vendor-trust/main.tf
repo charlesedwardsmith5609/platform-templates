@@ -18,6 +18,12 @@ module "vendor" {
   vendor_account_id = "111122223333"
   external_id       = "example-external-id"
   source_ip_cidrs   = ["203.0.113.0/24"]
+
+  tags = {
+    team    = "platform"
+    service = "vendor-bridge"
+    env     = "staging"
+  }
 }
 
 output "role_name" {

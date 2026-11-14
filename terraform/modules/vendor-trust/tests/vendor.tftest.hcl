@@ -7,6 +7,11 @@ variables {
   external_id       = "vendor-external-id"
   source_ip_cidrs   = ["203.0.113.0/24"]
   role_name         = "vendor-access"
+  tags = {
+    team    = "platform"
+    service = "vendor-bridge"
+    env     = "prod"
+  }
 }
 
 run "source_ip_trust_contains_external_id_and_source_ip" {
@@ -49,6 +54,21 @@ run "missing_external_id_fails" {
 
   expect_failures = [
     var.external_id,
+  ]
+}
+
+run "missing_team_tag_fails" {
+  command = plan
+
+  variables {
+    tags = {
+      service = "vendor-bridge"
+      env     = "prod"
+    }
+  }
+
+  expect_failures = [
+    var.tags,
   ]
 }
 

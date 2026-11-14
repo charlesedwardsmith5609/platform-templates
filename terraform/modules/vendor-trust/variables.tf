@@ -52,7 +52,13 @@ variable "role_name" {
 }
 
 variable "tags" {
-  description = "Extra tags for the role. Cost-attribution keys are enforced separately."
+  description = "Cost-attribution tags. team, service, and env are required and must be non-empty."
   type        = map(string)
-  default     = {}
+
+  validation {
+    condition = alltrue([
+      for key in ["team", "service", "env"] : length(trimspace(lookup(var.tags, key, ""))) > 0
+    ])
+    error_message = "tags must include non-empty team, service, and env."
+  }
 }

@@ -27,3 +27,13 @@ Options: name common pod fields from memory; describe options and mark unchecked
 Choice: `docs/agent-workload-isolation.md` quotes the security context, ServiceAccount, and NetworkPolicy fields already present in `terraform/modules/api-gateway`. Host namespaces, a separate node pool, and admission rules are described without field names and marked needs verification.
 
 Why: A field name that was not read from this repo or from a spec check would be a guess.
+
+## 2026-11-13: Cost tags are required on the vendor role only
+
+Context: Required cost-attribution tags are `team`, `service`, and `env`, with a test that fails when one is missing. The gateway module already tags with `Team` and `Environment`.
+
+Options: rename the gateway tags; require the three lowercase keys only on the new vendor role.
+
+Choice: `var.tags` on `vendor-trust` rejects a map that lacks any of the three keys or sets one to blank. The gateway module is unchanged.
+
+Why: Renaming tags on a module that is already published would change caller state. The new keys are enforced where this branch adds a role. Empty values fail closed the same way a missing key does.
