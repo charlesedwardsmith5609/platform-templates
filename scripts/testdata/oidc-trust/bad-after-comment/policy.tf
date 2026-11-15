@@ -1,0 +1,19 @@
+// "token.actions.githubusercontent.com:sub" = "repo:example-org/example-repo:ref:refs/heads/main"
+locals {
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      # "token.actions.githubusercontent.com:sub" = "repo:example-org/example-repo:ref:refs/heads/main"
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+}

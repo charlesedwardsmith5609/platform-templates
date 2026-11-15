@@ -1,0 +1,19 @@
+locals {
+  host = "token.actions.githubusercontent.com"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = merge(
+          { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" },
+          { format("%s:sub", local.host) = "repo:*" },
+        )
+      }
+    }]
+  })
+}

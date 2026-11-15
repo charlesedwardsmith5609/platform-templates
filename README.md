@@ -13,6 +13,7 @@ The goal: make the safe path the easy path.
 | Module | What it provisions |
 |--------|--------------------|
 | [`terraform/modules/api-gateway`](terraform/modules/api-gateway) | Envoy gateway on EKS with IRSA, OTel sidecar, PDB, and baseline NetworkPolicy |
+| [`terraform/modules/vendor-trust`](terraform/modules/vendor-trust) | Cross-account vendor role requiring `sts:ExternalId` and exactly one of `aws:SourceIp` or `aws:SourceVpce` (`aws:PrincipalOrgID` is optional and additive). No attached permissions |
 
 ### GitHub Actions workflows
 
@@ -20,13 +21,15 @@ The goal: make the safe path the easy path.
 |----------|-------------|
 | [`.github/workflows/service-onboarding.yml`](.github/workflows/service-onboarding.yml) | Namespace, IRSA ServiceAccount, OTel ConfigMap, smoke checks, runbook PR |
 | [`.github/workflows/secrets-injection.yml`](.github/workflows/secrets-injection.yml) | Reusable workflow: OIDC → STS → Secrets Manager → Kubernetes Secret → rollout |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` / `test`, TFLint, Checkov, actionlint, action SHA pins, Floci apply |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | `terraform fmt` / `validate` / `test` (api-gateway and vendor-trust), vendor-trust example validate, template render, TFLint, Checkov, actionlint, action SHA pins, GitHub OIDC `sub`/`aud` check, Floci apply |
 
 ### Examples
 
 | Example | Purpose |
 |---------|---------|
 | [`examples/api-gateway`](examples/api-gateway) | Root-module composition used by CI `terraform validate` |
+| [`examples/vendor-trust`](examples/vendor-trust) | Validates the vendor-trust module with an example (non-secret) external id and one documentation CIDR. No apply |
+| [`examples/github-oidc-role`](examples/github-oidc-role) | GitHub Actions OIDC trust policy with one repository and ref as `sub`. The policy `scripts/check-oidc-trust.sh` must find |
 | [`examples/template-render`](examples/template-render) | Renders Envoy/OTel templates without cloud providers |
 | [`examples/floci-aws`](examples/floci-aws) | Floci apply fixture for IRSA IAM + Secrets Manager (no K8s) |
 
@@ -118,6 +121,29 @@ Full input/output reference: [`terraform/modules/api-gateway/README.md`](terrafo
 
 ---
 
+## Vendor trust module
+
+Cross-account role for a third-party vendor. The trust policy requires `sts:ExternalId` and exactly one of `aws:SourceIp` (valid CIDRs, no `/0`) or `aws:SourceVpce`; `principal_org_id` only adds `aws:PrincipalOrgID` next to one of them. `tags` must carry non-empty `team`, `service`, and `env`. Requires Terraform 1.7.0 or later.
+
+```hcl
+module "vendor" {
+  source            = "./terraform/modules/vendor-trust"
+  vendor_account_id = "111122223333"
+  external_id       = "acme-7f3a9c1e-prod"
+  source_ip_cidrs   = ["203.0.113.0/24"]
+
+  tags = {
+    team    = "platform"
+    service = "vendor-bridge"
+    env     = "prod"
+  }
+}
+```
+
+Inputs, outputs, and validation rules: [`terraform/modules/vendor-trust/README.md`](terraform/modules/vendor-trust/README.md). Rationale: [`docs/vendor-access.md`](docs/vendor-access.md). Related: [agent workload isolation](docs/agent-workload-isolation.md).
+
+---
+
 ## Service onboarding workflow
 
 Replaces a multi-day “get a service onto the platform” checklist with one workflow run.
@@ -184,6 +210,7 @@ Each workflow sets `permissions: {}`. A job receives only the scopes listed on t
 | [`ci.yml`](.github/workflows/ci.yml) | `checkov` | `contents: read` | Checkout |
 | [`ci.yml`](.github/workflows/ci.yml) | `workflow-lint` | `contents: read` | Checkout |
 | [`ci.yml`](.github/workflows/ci.yml) | `action-pins` | `contents: read` | Checkout |
+| [`ci.yml`](.github/workflows/ci.yml) | `oidc-trust` | `contents: read` | Checkout |
 | [`ci.yml`](.github/workflows/ci.yml) | `floci-apply` | `contents: read` | Checkout |
 | [`service-onboarding.yml`](.github/workflows/service-onboarding.yml) | `validate` | `{}` | Input checks only |
 | [`service-onboarding.yml`](.github/workflows/service-onboarding.yml) | `bootstrap-identity` | `id-token: write`, `contents: read` | OIDC assume-role. Job token includes contents read. |
@@ -196,15 +223,37 @@ Supply-chain assumptions for these workflows: [CI threat model](docs/ci-threat-m
 
 ## Local checks
 
+The validation gate is one command:
+
+```bash
+bash scripts/check.sh
+```
+
+It runs the agent-misbehavior and assertion helpers, then `scripts/checks/shell.sh`: shellcheck, the repo shell tests (`test-check-action-pins`, `test-check-oidc-trust`, `test-docs-claims`, `test-terraform-config`), `check-action-pins.sh`, `check-oidc-trust.sh --skip-testdata --require-match`, `terraform fmt -check -recursive terraform examples`, `terraform test` for every module with tests (api-gateway and vendor-trust, run in a temp copy so `terraform init` does not touch the tree), and the Floci apply (`scripts/test-floci.sh`) when a docker daemon is available. A stage whose tool is missing prints `*** SKIP ***` and fails the gate unless `ALLOW_SKIP=1` is set. Set `TF_BIN` to use a specific terraform binary (CI pins 1.9.8). Without docker, `test-floci` is skipped, not passed.
+
+TFLint and Checkov are CI-only (`tflint` and `checkov` jobs in `ci.yml`, via their GitHub Actions); `scripts/check.sh` does not run them. CI TFLint lints `terraform/modules/api-gateway` and `examples/api-gateway`, not vendor-trust. To run the same tools by hand:
+
 ```bash
 terraform fmt -check -recursive terraform examples
 cd terraform/modules/api-gateway && terraform init -backend=false && terraform validate && terraform test
+cd terraform/modules/vendor-trust && terraform init -backend=false && terraform test
 cd examples/api-gateway && terraform init -backend=false && terraform validate
+cd examples/vendor-trust && terraform init -backend=false && terraform validate
 tflint --init && tflint --chdir terraform/modules/api-gateway
 checkov -d . --config-file .checkov.yml
 make check-action-pins          # third-party uses: must be 40-char SHAs
 make test-check-action-pins     # unit tests for the pin checker
+make check-oidc-trust           # GitHub OIDC trust policies in the repo
+make test-check-oidc-trust      # unit tests for that checker
+make test-terraform-config      # vendor-trust version floor, lock hashes, --require-match wiring
+make test-docs-claims           # greps docs for claims a review found wrong
 ```
+
+Lock files: `terraform/modules/vendor-trust` and `examples/vendor-trust` list two `h1:` hashes for the `aws` provider. The other lock files (`terraform/modules/api-gateway`, `examples/api-gateway`, `examples/floci-aws`) list one per provider; `examples/api-gateway` has a single platform hash per provider.
+
+### GitHub OIDC trust check
+
+`scripts/check-oidc-trust.sh [--require-match] [--skip-testdata] [root]` scans `.json`, `.json.tpl`, `.tf`, and `.hcl` files that name `token.actions.githubusercontent.com`. JSON goes through `jq`; `.tf` and `.hcl` are first converted to JSON by an awk tokenizer that reads `jsonencode({...})` literals and `aws_iam_policy_document` blocks. Every Allow statement needs a `sub` and an `aud` condition under `StringEquals` or `StringLike` (case-insensitive, `ForAnyValue:` allowed) whose values are non-empty and contain no `*` or `?`. `StringNot*`, `ForAllValues:`, and `...IfExists` fail, as does any `.tf` or `.hcl` file where `:sub` appears in a form the tokenizer cannot classify (a `format()` key, a heredoc, a `dynamic` block). `Deny` statements are not checked. Exit codes: 0 pass, 1 findings, 2 usage or read error. `--require-match` makes a scan that finds no matching file exit 1 (without it, exit 0). `--skip-testdata` skips directories named `testdata`; without it they are scanned. CI and `make check-oidc-trust` pass both flags. It reads source files, not `terraform show -json` output, and needs `jq` and `awk`.
 
 ---
 
@@ -240,6 +289,8 @@ Digest pinning stops surprise pulls; it does **not** stop known CVEs in the pinn
 | Floci emulator image | `scripts/test-floci.sh` (`FLOCI_IMAGE`, digest) | Platform maintainers | When bumping the Floci apply job or on Floci security notes |
 | Third-party GitHub Actions | `.github/workflows/*.yml` (`@<40-char-sha> # tag`) | Dependabot (`github-actions` in `.github/dependabot.yml`) + human review | Weekly Dependabot; merge after CI green |
 
+`.github/dependabot.yml` also watches the Terraform providers in `terraform/modules/api-gateway` and `examples/api-gateway`. It has no entry for `vendor-trust` or its example.
+
 **How to bump a container digest:** pull the intended tag, record `RepoDigest` / `sha256:…`, update the default in `variables.tf` (keep a readable tag prefix), run `terraform test` / module validate, open a PR. Do not “unpin to latest” to pick up patches.
 
 **Ownership:** the platform team that merges to this repo owns the cadence above. Service teams consuming these templates should inherit the same digests or document their own refresh policy.
@@ -258,7 +309,7 @@ Digest pinning stops surprise pulls; it does **not** stop known CVEs in the pinn
 PRs welcome. Each Terraform module should include:
 
 - `main.tf` (resources), `variables.tf`, `outputs.tf`, `versions.tf`
-- `README.md` with a usage example
+- `README.md` with a usage example, requirements, and inputs/outputs tables (maintained by hand; no `terraform-docs`)
 - Templates under `templates/` when ConfigMaps are rendered
 - Tests under `tests/*.tftest.hcl` where practical
-- CI coverage via `terraform validate` / `terraform test`, TFLint, and Checkov (see `.github/workflows/ci.yml`)
+- CI coverage via `terraform validate` / `terraform test`, TFLint, and Checkov (see `.github/workflows/ci.yml`), and a pass of `bash scripts/check.sh`
