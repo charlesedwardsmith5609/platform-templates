@@ -17,5 +17,10 @@ skip-check:
   - CKV_AWS_149
   - CKV2_AWS_57
 
+# Fixtures for scripts/check-oidc-trust.sh: deliberately good and bad trust policies that exist to
+# be classified by that checker, not deployed.
+skip-path:
+  - scripts/testdata
+
 soft-fail: false
 download-external-modules: false

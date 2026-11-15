@@ -69,3 +69,12 @@ Options: parse every IAM trust policy and guess which issuer is GitHub; add an e
 Choice: `scripts/check-oidc-trust.sh` scans `.tf`, `.json`, and `.hcl` for that host. A missing `sub`, an empty `sub`, or a `sub` containing `*` fails the check. (The rules were later extended; see D4.) `scripts/testdata/oidc-trust/` holds a wildcard fixture and a missing-sub fixture, and the unit test requires those messages. The repo scan skips `testdata` so the bad fixtures do not fail CI. `examples/github-oidc-role` is the policy the repo scan must find. A scan that finds zero matching files exits 1 only with `--require-match`, which CI and `make check-oidc-trust` pass.
 
 Why: The existing role is not a GitHub Actions trust policy. Inventing a match against the EKS issuer would flag the wrong thing. A missing `sub` is treated like a wildcard because both let any workflow assume the role. (Superseded by the structural checker in "OIDC checker is structural (D4)": the checker now evaluates every Allow statement, so a second statement with no `sub` fails.)
+
+## 2026-11-14: Checkov findings suppressed on purpose (approved by the repository owner)
+
+CI's Checkov 3.2.363 reported two failures on this branch. Both are suppressed, narrowly:
+
+- `CKV_AWS_358` on `scripts/testdata/oidc-trust/good-policy-document/policy.tf`: that file is a fixture for `scripts/check-oidc-trust.sh`, one of a set of deliberately good and bad trust policies. `scripts/testdata` is now under `skip-path` in `.checkov.yml`. Real modules and examples are still scanned.
+- `CKV_AWS_61` on `aws_iam_role.vendor` in `terraform/modules/vendor-trust/main.tf`: an inline `checkov:skip` with the reason. The role trusts one named vendor account, requires `sts:ExternalId`, and requires exactly one of `aws:SourceIp` or `aws:SourceVpce` (precondition plus tests). Checkov's rule is aimed at trust that spans all services.
+
+Not reproduced locally: Checkov 3.2.363 does not install on the local Python (`rustworkx` wheel), and the local 3.4.5 passed before and after. CI is the check for these two.

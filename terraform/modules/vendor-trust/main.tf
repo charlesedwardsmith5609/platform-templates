@@ -12,6 +12,9 @@ locals {
 }
 
 resource "aws_iam_role" "vendor" {
+  # checkov:skip=CKV_AWS_61: This role exists to be assumed by one named vendor account. The trust
+  # is not "all services": it names a single account, requires sts:ExternalId, and requires exactly
+  # one of aws:SourceIp or aws:SourceVpce (see the precondition below and the module tests).
   name = var.role_name
 
   lifecycle {
