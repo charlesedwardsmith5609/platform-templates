@@ -27,3 +27,19 @@ needs verification: the exact token GitHub issues for a fork pull request agains
 ## Workflow logs are a secret sink
 
 A step that prints a token, a secret, or the process environment writes that value into the workflow log. Anyone who can read the log can read the value. Logs are a place secrets leak. Do not echo a secret to debug a failure. Deleting a run, which the source above lists among the LiteLLM actions, does not undo the time the value sat in the log. This wording follows the source summary in the first section; the source page was not re-checked offline (assumption). Prefer not printing it.
+
+## Secrets Manager read path
+
+This section is about the deploy role that reads Secrets Manager. It is separate from the LiteLLM chain above.
+
+No workflow in this repository, and neither Terraform module, contains a `secretsmanager:GetSecretValue` statement. `vendor-trust` attaches no permissions. The api-gateway role attaches only the managed policy ARNs a caller passes in `additional_iam_policy_arns`. `secrets-injection.yml` calls `aws secretsmanager get-secret-value` once per run. The secret id defaults to `platform/<environment>/<service>/config`, and the `secret_id` input can replace it, so the caller chooses which id is requested.
+
+The role in `AWS_DEPLOY_ROLE_ARN` is created outside this repository. That role should allow `secretsmanager:GetSecretValue` only on specific secret ARNs. CI does not see that policy, so this page does not claim the role is least privilege. Illustrative ARN only; this repository does not apply it. Secrets Manager appends a hyphen and six random characters to each secret ARN, so name the full ARN:
+
+`arn:aws:secretsmanager:us-west-2:123456789012:secret:platform/production/checkout-api/config-AbCdEf`
+
+`examples/floci-aws` attaches the AWS managed policy `ReadOnlyAccess` to an IRSA role in the local emulator. That policy document is not in this repository, so this page cannot show whether it allows a broad secret read. It is not a named secret ARN, and it is not the deploy role.
+
+Hosts that run these workloads should require IMDSv2 (`http_tokens = required`). This repository does not manage EC2 instances or EKS node groups, and it does not set instance metadata options. Pods should use IRSA. The api-gateway module already trusts one ServiceAccount. Do not put long-term access keys in application config. Workflows in this repository assume roles with OIDC.
+
+According to the November 2026 AWS announcement (not re-checked offline; assumption), Secrets Manager can replicate a secret to another account without a shared KMS key and without a cross-account resource policy. That is an option for disaster recovery. This repository does not configure replication. Check current AWS documentation for regions, pricing, and limits.

@@ -2,6 +2,10 @@
 
 Format follows Keep a Changelog. Dates are UTC.
 
+## [Unreleased] - 2026-11-16
+
+- Document that the deploy role should name specific Secrets Manager ARNs. Note IMDSv2, no long-term keys in application config, and cross-account replication as an AWS disaster-recovery option this repository does not configure.
+
 ## [Unreleased] - 2026-11-14
 
 - `vendor-trust` now requires exactly one of `source_ip_cidrs` (valid CIDRs, no `/0`) or `source_vpce_ids` (`aws:SourceVpce`). `principal_org_id` is optional and additive and no longer counts as the second condition. This replaces the 2026-11-11 wording "`aws:SourceIp` or `aws:PrincipalOrgID`". Both list variables are `nullable = false`.

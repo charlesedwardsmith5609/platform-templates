@@ -33,6 +33,9 @@ check "fork PR sentence needs verification" fork_marked
 check "LiteLLM sentence no longer claims chain used deletion to hide an edit" \
   lacks 'used to hide an edit' "${TM}"
 check "namespace conditional on create_namespace" has 'create_namespace' "${WI}"
+check "specific secret ARNs" has 'specific secret ARN' "${TM}"
+check "replication not configured here" has 'does not configure replication' "${TM}"
+check "metadata options not set here" has 'does not set instance metadata' "${TM}"
 
 if [[ "${fail}" -gt 0 ]]; then
   echo "docs claims: ${fail} failed" >&2
