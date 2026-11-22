@@ -140,7 +140,7 @@ module "vendor" {
 }
 ```
 
-Inputs, outputs, and validation rules: [`terraform/modules/vendor-trust/README.md`](terraform/modules/vendor-trust/README.md). Rationale: [`docs/vendor-access.md`](docs/vendor-access.md). Related: [agent workload isolation](docs/agent-workload-isolation.md).
+Inputs, outputs, and validation rules: [`terraform/modules/vendor-trust/README.md`](terraform/modules/vendor-trust/README.md). Rationale: [`docs/vendor-access.md`](docs/vendor-access.md). Related: [agent workload isolation](docs/agent-workload-isolation.md). Design note on where TLS and client authentication end: [mTLS termination](docs/mtls-termination.md).
 
 ---
 
