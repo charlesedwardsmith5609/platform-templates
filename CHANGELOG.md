@@ -5,6 +5,7 @@ Format follows Keep a Changelog. Dates are UTC.
 ## [Unreleased] - 2026-11-16
 
 - Document that the deploy role should name specific Secrets Manager ARNs. Note IMDSv2, no long-term keys in application config, and cross-account replication as an AWS disaster-recovery option this repository does not configure.
+- Secrets read-path note now cites file and line for each repository claim, states the example `access_key` literals are emulator/mock placeholders, says the repository does not configure GuardDuty, and cites the AWS cross-account replication announcement (read 2026-11-21). Doc tests extended in `scripts/test-docs-claims.sh`.
 
 ## [Unreleased] - 2026-11-14
 
