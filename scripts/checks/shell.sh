@@ -32,6 +32,7 @@ stage "repo shell tests"
 run "test-check-action-pins" bash scripts/test-check-action-pins.sh
 run "test-check-oidc-trust" bash scripts/test-check-oidc-trust.sh
 run "test-docs-claims" bash scripts/test-docs-claims.sh
+run "test-dependabot-config" bash scripts/test-dependabot-config.sh
 run "check-action-pins (repo)" bash scripts/check-action-pins.sh
 run "check-oidc-trust (repo)" bash scripts/check-oidc-trust.sh --skip-testdata --require-match
 

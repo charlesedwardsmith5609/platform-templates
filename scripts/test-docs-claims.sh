@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VA="${ROOT}/docs/vendor-access.md"
 TM="${ROOT}/docs/ci-threat-model.md"
 WI="${ROOT}/docs/agent-workload-isolation.md"
+MT="${ROOT}/docs/mtls-termination.md"
 fail=0
 
 check() { # name, command...
@@ -43,6 +44,13 @@ check "GuardDuty not configured" has 'does not configure GuardDuty' "${TM}"
 check "emulator placeholder keys named" has 'examples/floci-aws/main\.tf:44' "${TM}"
 check "replication cites AWS announcement URL" has 'about-aws/whats-new/2026/11/secrets-manager-cross-account' "${TM}"
 check "replication paragraph cites the AWS page" lacks 'not re-checked offline \(assumption\)\. Secrets|announcement \(not re-checked offline; assumption\)' "${TM}"
+check "mtls note exists" test -f "${MT}"
+check "mtls note says the module configures no mTLS" has 'configures no mTLS' "${MT}"
+check "mtls note cites envoy.yaml.tpl line" has 'envoy\.yaml\.tpl:[0-9]+' "${MT}"
+check "mtls note cites main.tf line" has 'main\.tf:[0-9]+' "${MT}"
+check "mtls note records the open question" has 'Open question' "${MT}"
+check "mtls note does not say the module sets transport_socket" lacks 'module sets transport_socket' "${MT}"
+check "mtls note labels NLB claims as vendor claims" has 'vendor claim' "${MT}"
 
 if [[ "${fail}" -gt 0 ]]; then
   echo "docs claims: ${fail} failed" >&2

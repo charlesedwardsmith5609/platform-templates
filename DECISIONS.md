@@ -78,3 +78,13 @@ CI's Checkov 3.2.363 reported two failures on this branch. Both are suppressed, 
 - `CKV_AWS_61` on `aws_iam_role.vendor` in `terraform/modules/vendor-trust/main.tf`: an inline `checkov:skip` with the reason. The role trusts one named vendor account, requires `sts:ExternalId`, and requires exactly one of `aws:SourceIp` or `aws:SourceVpce` (precondition plus tests). Checkov's rule is aimed at trust that spans all services.
 
 Not reproduced locally: Checkov 3.2.363 does not install on the local Python (`rustworkx` wheel), and the local 3.4.5 passed before and after. CI is the check for these two.
+
+## 2026-11-20: Dependabot cooldown is 7 days (pending owner confirmation)
+
+Context: Compromised releases of `agent-framework` on PyPI and of WPPConnect were reported (opensourcemalware.com and stepsecurity.io blog posts), and Chainguard describes a 7-day cooldown. These are vendor and blog claims and were not verified here. A release that carries a signature or provenance attestation can still be malicious, so provenance is not safety.
+
+Options: no cooldown; `default-days: 7` on all three entries in `.github/dependabot.yml`; per-semver-level days.
+
+Choice: `cooldown: default-days: 7` on the `github-actions` entry and both `terraform` entries. No `semver-*` keys: this note does not rely on them for these ecosystems, and the docs table read on 2026-11-21 could not be parsed to confirm them. The GitHub docs read the same day say the option applies to version updates only, not security updates, and state that Dependabot applies a default cooldown of 3 days when none is set (that default is new relative to the plan; 7 days extends it). Days are 1 to 90.
+
+Why: Waiting lets the ecosystem flag a bad release before it lands in a pull request. Cost: version bumps arrive up to a week later; security updates are not delayed. Implemented on the owner's stated default while the owner was unavailable; the owner should confirm or revert. `scripts/test-dependabot-config.sh` fails if an entry loses the cooldown.

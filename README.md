@@ -140,7 +140,7 @@ module "vendor" {
 }
 ```
 
-Inputs, outputs, and validation rules: [`terraform/modules/vendor-trust/README.md`](terraform/modules/vendor-trust/README.md). Rationale: [`docs/vendor-access.md`](docs/vendor-access.md). Related: [agent workload isolation](docs/agent-workload-isolation.md).
+Inputs, outputs, and validation rules: [`terraform/modules/vendor-trust/README.md`](terraform/modules/vendor-trust/README.md). Rationale: [`docs/vendor-access.md`](docs/vendor-access.md). Related: [agent workload isolation](docs/agent-workload-isolation.md). Design note on where TLS and client authentication end: [mTLS termination](docs/mtls-termination.md).
 
 ---
 
@@ -287,7 +287,7 @@ Digest pinning stops surprise pulls; it does **not** stop known CVEs in the pinn
 |----------|--------------|-----------|---------|
 | Envoy / OTel Collector images | `terraform/modules/api-gateway/variables.tf` (`@sha256:…`, validation rejects unpinned overrides) | Platform maintainers (PR) | Monthly, and within 7 days of a relevant CVE advisory |
 | Floci emulator image | `scripts/test-floci.sh` (`FLOCI_IMAGE`, digest) | Platform maintainers | When bumping the Floci apply job or on Floci security notes |
-| Third-party GitHub Actions | `.github/workflows/*.yml` (`@<40-char-sha> # tag`) | Dependabot (`github-actions` in `.github/dependabot.yml`) + human review | Weekly Dependabot; merge after CI green |
+| Third-party GitHub Actions | `.github/workflows/*.yml` (`@<40-char-sha> # tag`) | Dependabot (`github-actions` in `.github/dependabot.yml`) + human review | Weekly Dependabot, 7-day cooldown on version updates (pending owner confirmation); merge after CI green |
 
 `.github/dependabot.yml` also watches the Terraform providers in `terraform/modules/api-gateway` and `examples/api-gateway`. It has no entry for `vendor-trust` or its example.
 

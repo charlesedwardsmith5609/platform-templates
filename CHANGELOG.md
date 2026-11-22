@@ -2,6 +2,11 @@
 
 Format follows Keep a Changelog. Dates are UTC.
 
+## [Unreleased] - 2026-11-20
+
+- New design note `docs/mtls-termination.md` (docs only, no Terraform change): the api-gateway module configures no TLS or mTLS; compares terminating mTLS at Envoy with an AWS NLB in front. NLB details are vendor claims from the AWS blog. Whether either option belongs here is an open question. Doc tests added to `scripts/test-docs-claims.sh`.
+- Dependabot: `cooldown: default-days: 7` on all three entries (github-actions, two terraform). Implemented on the stated default, pending owner confirmation. Security updates are not delayed. New `scripts/test-dependabot-config.sh` (three fixtures plus the repo file) runs from `scripts/checks/shell.sh`.
+
 ## [Unreleased] - 2026-11-16
 
 - Document that the deploy role should name specific Secrets Manager ARNs. Note IMDSv2, no long-term keys in application config, and cross-account replication as an AWS disaster-recovery option this repository does not configure.
